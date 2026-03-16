@@ -79,7 +79,7 @@
 | `resources/icon.*` | Original (created for project) | Document in LICENSE |
 | `resources/notification.mp3` | Replaced with generated CC0 chime (embedded metadata) | Resolved |
 | `resources/trayTemplate*.png` | Original | Document in LICENSE |
-| `CLUI.png`, `CLUI_mono.png` | Marketing assets | Include or exclude per preference |
+| Root marketing screenshots | Not included in current repo root | Optional to add later if needed for release collateral |
 
 **Verdict:** Add LICENSE file. ~~Verify notification.mp3 provenance~~ — resolved (replaced with CC0 generated chime).
 

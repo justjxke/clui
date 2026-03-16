@@ -5,11 +5,16 @@
 ### Fresh Clone Bootstrap
 
 ```bash
-git clone <repo-url>
-cd clui
+git clone https://github.com/lcoutodemos/clui-cc.git
+cd clui-cc
 npm install        # installs deps + runs postinstall (electron-builder install-app-deps + icon patch)
 npm run build      # production build — must exit 0 with no errors
 ```
+
+**Prerequisites check:**
+- `xcode-select --install` completed (required for node-pty native compilation)
+- `node --version` returns 18+
+- `claude --version` returns 2.1+
 
 **Expected output:**
 - `dist/main/index.js` — ~117 KB
@@ -27,11 +32,12 @@ npm run build      # production build — must exit 0 with no errors
 
 ### Prerequisites
 - [ ] macOS 13+
+- [ ] Xcode Command Line Tools installed (`xcode-select -p` returns a path)
 - [ ] Node.js 18+
 - [ ] `claude` CLI installed and authenticated (`claude --version` returns 2.1+)
 
 ### Startup
-- [ ] `npm run dev` or `./start.sh` launches the app
+- [ ] `npm run dev` or `./start.command` launches the app
 - [ ] Floating pill appears at bottom-center of screen
 - [ ] `Alt+Space` toggles visibility
 - [ ] Tray icon appears in menu bar

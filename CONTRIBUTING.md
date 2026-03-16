@@ -1,14 +1,29 @@
-# Contributing to CLUI
+# Contributing to Clui CC
 
-Thanks for your interest in contributing! CLUI is a desktop overlay for Claude Code, and we welcome bug reports, feature ideas, and pull requests.
+Thanks for your interest in contributing! Clui CC is a desktop overlay for Claude Code, and we welcome bug reports, feature ideas, and pull requests.
 
 ## Getting Started
 
-1. Fork and clone the repo
-2. `npm install`
-3. `npm run dev` — starts Electron with hot-reload
-4. Make your changes in `src/`
-5. `npm run build` — verify zero TypeScript errors
+1. Make sure you have the [prerequisites](README.md#prerequisites) installed (macOS, Xcode CLT, Node.js 18+, Claude Code CLI 2.1+)
+2. Fork and clone the repo:
+   ```bash
+   git clone https://github.com/<your-username>/clui-cc.git
+   cd clui-cc
+   ```
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+   > If `npm install` fails with native compilation errors, run `xcode-select --install` first.
+4. Start the dev server:
+   ```bash
+   npm run dev
+   ```
+5. Make your changes in `src/`
+6. Verify your changes build cleanly:
+   ```bash
+   npm run build
+   ```
 
 ## Development Tips
 
@@ -35,7 +50,7 @@ Thanks for your interest in contributing! CLUI is a desktop overlay for Claude C
 
 Open an issue with:
 - macOS version
-- Node.js version
+- Node.js version (`node --version`)
 - Claude Code CLI version (`claude --version`)
 - Steps to reproduce
 - Expected vs. actual behavior

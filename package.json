@@ -5,12 +5,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lcoutodemos/cluicc.git"
+    "url": "https://github.com/lcoutodemos/clui-cc.git"
   },
   "bugs": {
-    "url": "https://github.com/lcoutodemos/cluicc/issues"
+    "url": "https://github.com/lcoutodemos/clui-cc/issues"
   },
-  "homepage": "https://github.com/lcoutodemos/cluicc#readme",
+  "homepage": "https://github.com/lcoutodemos/clui-cc#readme",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
