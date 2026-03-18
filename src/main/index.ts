@@ -158,7 +158,7 @@ function createWindow(): void {
 }
 
 function showWindow(source = 'unknown'): void {
-  if (!mainWindow || mainWindow.isVisible()) return
+  if (!mainWindow) return
   const toggleId = ++toggleSequence
 
   // Position on the display where the cursor currently is (not always primary)
@@ -173,8 +173,9 @@ function showWindow(source = 'unknown'): void {
     height: PILL_HEIGHT,
   })
 
-  // Re-assert space membership on every show: the flag can be lost after a
-  // hide() cycle on some macOS/Electron version combinations.
+  // Always re-assert space membership — the flag can be lost after hide/show cycles
+  // and must be set before show() so the window joins the active Space, not its
+  // last-known Space.
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   if (SPACES_DEBUG) {
@@ -197,7 +198,12 @@ function toggleWindow(source = 'unknown'): void {
     snapshotWindowState(`toggle#${toggleId} pre`)
   }
 
-  if (mainWindow.isVisible()) {
+  // Hide only when the webContents is focused — meaning the window is present and
+  // active on the current Space. isVisible() alone is not sufficient: the window can
+  // be visible on a different Space (isVisible() === true, isFocused() === false).
+  // In that case, pressing the shortcut should bring it forward, not hide it.
+  const shouldHide = mainWindow.isVisible() && mainWindow.webContents.isFocused()
+  if (shouldHide) {
     mainWindow.hide()
     if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
   } else {
