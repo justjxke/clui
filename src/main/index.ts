@@ -350,6 +350,11 @@ ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
   log(`IPC LIST_SESSIONS ${projectPath ? `(path=${projectPath})` : ''}`)
   try {
     const cwd = projectPath || process.cwd()
+    // Validate projectPath — reject null bytes, newlines, non-absolute paths
+    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
+      log(`LIST_SESSIONS: rejected invalid projectPath: ${cwd}`)
+      return []
+    }
     // Claude stores project sessions at ~/.claude/projects/<encoded-path>/
     // Path encoding: replace all '/' with '-' (leading '/' becomes leading '-')
     const encodedPath = cwd.replace(/\//g, '-')
@@ -430,8 +435,21 @@ ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPat
   const sessionId = typeof arg === 'string' ? arg : arg.sessionId
   const projectPath = typeof arg === 'string' ? undefined : arg.projectPath
   log(`IPC LOAD_SESSION ${sessionId}${projectPath ? ` (path=${projectPath})` : ''}`)
+
+  // Validate sessionId — must be strict UUID to prevent path traversal via crafted filenames
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!UUID_RE.test(sessionId)) {
+    log(`LOAD_SESSION: rejected invalid sessionId: ${sessionId}`)
+    return []
+  }
+
   try {
     const cwd = projectPath || process.cwd()
+    // Validate projectPath — reject null bytes, newlines, non-absolute paths
+    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
+      log(`LOAD_SESSION: rejected invalid projectPath: ${cwd}`)
+      return []
+    }
     const encodedPath = cwd.replace(/\//g, '-')
     const filePath = join(homedir(), '.claude', 'projects', encodedPath, `${sessionId}.jsonl`)
     if (!existsSync(filePath)) return []
@@ -499,9 +517,11 @@ ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
 
 ipcMain.handle(IPC.OPEN_EXTERNAL, async (_event, url: string) => {
   try {
-    // Only allow http(s) links from markdown content.
-    if (!/^https?:\/\//i.test(url)) return false
-    await shell.openExternal(url)
+    // Parse with URL constructor to reject malformed/ambiguous payloads
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+    if (!parsed.hostname) return false
+    await shell.openExternal(parsed.href)
     return true
   } catch {
     return false
@@ -647,16 +667,35 @@ ipcMain.handle(IPC.PASTE_IMAGE, async (_event, dataUrl: string) => {
 
 ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
   const { writeFileSync, existsSync, unlinkSync, readFileSync } = require('fs')
-  const { execSync } = require('child_process')
-  const { join } = require('path')
+  const { execFile } = require('child_process')
+  const { join, basename } = require('path')
   const { tmpdir } = require('os')
+
+  const startedAt = Date.now()
+  const phaseMs: Record<string, number> = {}
+  const mark = (name: string, t0: number) => { phaseMs[name] = Date.now() - t0 }
 
   const tmpWav = join(tmpdir(), `clui-voice-${Date.now()}.wav`)
   try {
+    const runExecFile = (bin: string, args: string[], timeout: number): Promise<string> =>
+      new Promise((resolve, reject) => {
+        execFile(bin, args, { encoding: 'utf-8', timeout }, (err: any, stdout: string, stderr: string) => {
+          if (err) {
+            const detail = stderr?.trim() || stdout?.trim() || err.message
+            reject(new Error(detail))
+            return
+          }
+          resolve(stdout || '')
+        })
+      })
+
+    let t0 = Date.now()
     const buf = Buffer.from(audioBase64, 'base64')
     writeFileSync(tmpWav, buf)
+    mark('decode+write_wav', t0)
 
     // Find whisper backend in priority order: whisperkit-cli (Apple Silicon CoreML) → whisper-cli (whisper-cpp) → whisper (python)
+    t0 = Date.now()
     const candidates = [
       '/opt/homebrew/bin/whisperkit-cli',
       '/usr/local/bin/whisperkit-cli',
@@ -671,14 +710,17 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
     for (const c of candidates) {
       if (existsSync(c)) { whisperBin = c; break }
     }
+    mark('probe_binary_paths', t0)
 
     if (!whisperBin) {
+      t0 = Date.now()
       for (const name of ['whisperkit-cli', 'whisper-cli', 'whisper']) {
         try {
-          whisperBin = execSync(`/bin/zsh -lc "whence -p ${name}"`, { encoding: 'utf-8' }).trim()
+          whisperBin = await runExecFile('/bin/zsh', ['-lc', `whence -p ${name}`], 5000).then((s) => s.trim())
           if (whisperBin) break
         } catch {}
       }
+      mark('probe_binary_whence', t0)
     }
 
     if (!whisperBin) {
@@ -701,32 +743,46 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       // WhisperKit (Apple Silicon CoreML) — auto-downloads models on first run
       // Use --report to produce a JSON file with a top-level "text" field for deterministic parsing
       const reportDir = tmpdir()
-      execSync(
-        `"${whisperBin}" transcribe --audio-path "${tmpWav}" --model tiny --without-timestamps --skip-special-tokens --report --report-path "${reportDir}"`,
-        { encoding: 'utf-8', timeout: 60000 }
+      t0 = Date.now()
+      output = await runExecFile(
+        whisperBin,
+        ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--without-timestamps', '--skip-special-tokens', '--report', '--report-path', reportDir],
+        60000
       )
+      mark('whisperkit_transcribe_report', t0)
+
       // WhisperKit writes <audioFileName>.json (filename without extension)
-      const wavBasename = require('path').basename(tmpWav, '.wav')
+      const wavBasename = basename(tmpWav, '.wav')
       const reportPath = join(reportDir, `${wavBasename}.json`)
       if (existsSync(reportPath)) {
         try {
+          t0 = Date.now()
           const report = JSON.parse(readFileSync(reportPath, 'utf-8'))
           const transcript = (report.text || '').trim()
+          mark('whisperkit_parse_report_json', t0)
           try { unlinkSync(reportPath) } catch {}
           // Also clean up .srt that --report creates
           const srtPath = join(reportDir, `${wavBasename}.srt`)
           try { unlinkSync(srtPath) } catch {}
+          log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
           return { error: null, transcript }
         } catch (parseErr: any) {
           log(`WhisperKit JSON parse failed: ${parseErr.message}, falling back to stdout`)
           try { unlinkSync(reportPath) } catch {}
         }
       }
-      // Fallback: re-run without --report, stdout is plain text when --verbose is not set
-      output = execSync(
-        `"${whisperBin}" transcribe --audio-path "${tmpWav}" --model tiny --without-timestamps --skip-special-tokens`,
-        { encoding: 'utf-8', timeout: 60000 }
-      )
+
+      // Performance fallback: avoid a second full transcription if report file is missing/invalid.
+      // Use stdout from the first run to keep latency close to pre-report behavior.
+      if (!output || !output.trim()) {
+        t0 = Date.now()
+        output = await runExecFile(
+          whisperBin,
+          ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--without-timestamps', '--skip-special-tokens'],
+          60000
+        )
+        mark('whisperkit_transcribe_stdout_rerun', t0)
+      }
     } else if (isWhisperCpp) {
       // whisper-cpp: whisper-cli -m model -f file --no-timestamps
       // Find model file — prefer multilingual (auto-detect language) over .en (English-only)
@@ -755,21 +811,30 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
 
       const isEnglishOnly = modelPath.includes('.en.')
       const langFlag = isEnglishOnly ? '-l en' : '-l auto'
-      output = execSync(
-        `"${whisperBin}" -m "${modelPath}" -f "${tmpWav}" --no-timestamps ${langFlag}`,
-        { encoding: 'utf-8', timeout: 30000 }
+      t0 = Date.now()
+      output = await runExecFile(
+        whisperBin,
+        ['-m', modelPath, '-f', tmpWav, '--no-timestamps', '-l', isEnglishOnly ? 'en' : 'auto'],
+        30000
       )
+      mark('whisper_cpp_transcribe', t0)
     } else {
       // Python whisper
-      output = execSync(
-        `"${whisperBin}" "${tmpWav}" --model tiny --output_format txt --output_dir "${tmpdir()}"`,
-        { encoding: 'utf-8', timeout: 30000 }
+      t0 = Date.now()
+      output = await runExecFile(
+        whisperBin,
+        [tmpWav, '--model', 'tiny', '--output_format', 'txt', '--output_dir', tmpdir()],
+        30000
       )
+      mark('python_whisper_transcribe', t0)
       // Python whisper writes .txt file
       const txtPath = tmpWav.replace('.wav', '.txt')
       if (existsSync(txtPath)) {
+        t0 = Date.now()
         const transcript = readFileSync(txtPath, 'utf-8').trim()
+        mark('python_whisper_read_txt', t0)
         try { unlinkSync(txtPath) } catch {}
+        log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
         return { error: null, transcript }
       }
       // File not created — Python whisper failed silently
@@ -787,12 +852,15 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       .trim()
 
     if (HALLUCINATIONS.test(transcript)) {
+      log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
       return { error: null, transcript: '' }
     }
 
+    log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt })}`)
     return { error: null, transcript: transcript || '' }
   } catch (err: any) {
     log(`Transcription error: ${err.message}`)
+    log(`Transcription timing(ms): ${JSON.stringify({ ...phaseMs, total: Date.now() - startedAt, failed: true })}`)
     return {
       error: `Transcription failed: ${err.message}`,
       transcript: null,
@@ -832,6 +900,8 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
   const { execFile } = require('child_process')
   const claudeBin = 'claude'
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
   // Support both old (string) and new ({ sessionId, projectPath }) calling convention
   let sessionId: string | null = null
   let projectPath: string = process.cwd()
@@ -842,13 +912,32 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
   }
 
-  // Escape for AppleScript: double quotes → backslash-escaped, backslashes doubled
-  const projectDir = projectPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  // Validate sessionId — must be a strict UUID to prevent injection into the shell command
+  if (sessionId && !UUID_RE.test(sessionId)) {
+    log(`OPEN_IN_TERMINAL: rejected invalid sessionId: ${sessionId}`)
+    return false
+  }
+
+  // Sanitize projectPath — reject null bytes, newlines, and non-absolute paths
+  if (/[\0\r\n]/.test(projectPath) || !projectPath.startsWith('/')) {
+    log(`OPEN_IN_TERMINAL: rejected invalid projectPath: ${projectPath}`)
+    return false
+  }
+
+  // Shell-safe single-quote escaping: replace ' with '\'' (end quote, escaped literal quote, reopen quote)
+  // Single quotes block all shell expansion ($, `, \, etc.) — unlike double quotes which allow $() and backticks
+  const shellSingleQuote = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'"
+  // AppleScript string escaping: backslashes doubled, double quotes escaped
+  const escapeAppleScript = (s: string): string => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+
+  const safeDir = escapeAppleScript(shellSingleQuote(projectPath))
+
   let cmd: string
   if (sessionId) {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin} --resume ${sessionId}`
+    // sessionId is UUID-validated above, safe to embed directly
+    cmd = `cd ${safeDir} && ${claudeBin} --resume ${sessionId}`
   } else {
-    cmd = `cd \\"${projectDir}\\" && ${claudeBin}`
+    cmd = `cd ${safeDir} && ${claudeBin}`
   }
 
   const script = `tell application "Terminal"

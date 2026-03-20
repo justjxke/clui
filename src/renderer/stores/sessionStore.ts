@@ -11,6 +11,34 @@ export const AVAILABLE_MODELS = [
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
 ] as const
 
+function normalizeModelId(modelId: string): string {
+  // Claude sometimes appends context window hints like "[1m]" to model IDs.
+  return modelId.replace(/\[[^\]]+\]/g, '').trim()
+}
+
+export function getModelDisplayLabel(modelId: string): string {
+  const normalizedId = normalizeModelId(modelId)
+  const has1MContext = /\[\s*1m\s*\]/i.test(modelId)
+
+  const known = AVAILABLE_MODELS.find((m) => m.id === normalizedId)
+  if (known) {
+    return has1MContext ? `${known.label} (1M)` : known.label
+  }
+
+  // Fallback for future model IDs not yet listed in AVAILABLE_MODELS.
+  const compact = normalizedId
+    .replace(/^claude-/, '')
+    .replace(/-\d{8}$/, '')
+  const familyMatch = compact.match(/^(opus|sonnet|haiku)-(\d+)-(\d+)$/i)
+  if (familyMatch) {
+    const family = familyMatch[1][0].toUpperCase() + familyMatch[1].slice(1).toLowerCase()
+    const label = `${family} ${familyMatch[2]}.${familyMatch[3]}`
+    return has1MContext ? `${label} (1M)` : label
+  }
+
+  return has1MContext ? `${normalizedId} (1M)` : normalizedId
+}
+
 // ─── Store ───
 
 interface StaticInfo {
