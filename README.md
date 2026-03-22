@@ -2,7 +2,7 @@
 
 A lightweight, transparent desktop overlay for Codex on macOS. CLUI wraps the Codex CLI/app-server in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
 
-![CLUI](/Users/jake/Documents/Projects/clui/docs/hero.png)
+![CLUI](docs/hero.png)
 
 
 ## Features
