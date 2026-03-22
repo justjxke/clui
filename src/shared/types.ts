@@ -48,6 +48,7 @@ export interface Attachment {
   id: string
   type: 'image' | 'file'
   name: string
+  displayName?: string
   path: string
   mimeType?: string
   dataUrl?: string

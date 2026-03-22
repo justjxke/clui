@@ -15,6 +15,14 @@ function log(msg: string): void {
   _log('main', msg)
 }
 
+function toSafeName(value: string): string {
+  const safe = value
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return safe || 'attachment'
+}
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let screenshotCounter = 0
@@ -512,6 +520,7 @@ ipcMain.handle(IPC.ATTACH_FILES, async () => {
     const ext = extname(fp).toLowerCase()
     const mime = mimeMap[ext] || 'application/octet-stream'
     const stat = statSync(fp)
+    const displayName = basename(fp)
     let dataUrl: string | undefined
 
     // Generate preview data URL for images (max 2MB to keep IPC fast)
@@ -525,7 +534,8 @@ ipcMain.handle(IPC.ATTACH_FILES, async () => {
     return {
       id: crypto.randomUUID(),
       type: IMAGE_EXTS.has(ext) ? 'image' : 'file',
-      name: basename(fp),
+      name: toSafeName(displayName),
+      displayName,
       path: fp,
       mimeType: mime,
       dataUrl,
@@ -564,7 +574,8 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
     return {
       id: crypto.randomUUID(),
       type: 'image',
-      name: `screenshot ${++screenshotCounter}.png`,
+      name: toSafeName(`screenshot-${++screenshotCounter}`),
+      displayName: `screenshot ${screenshotCounter}.png`,
       path: screenshotPath,
       mimeType: 'image/png',
       dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
@@ -605,7 +616,8 @@ ipcMain.handle(IPC.PASTE_IMAGE, async (_event, dataUrl: string) => {
     return {
       id: crypto.randomUUID(),
       type: 'image',
-      name: `pasted image ${++pasteCounter}.${ext}`,
+      name: toSafeName(`pasted-image-${++pasteCounter}`),
+      displayName: `pasted image ${pasteCounter}.${ext}`,
       path: filePath,
       mimeType,
       dataUrl,

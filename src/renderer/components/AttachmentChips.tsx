@@ -52,7 +52,7 @@ export function AttachmentChips({
             {a.dataUrl ? (
               <img
                 src={a.dataUrl}
-                alt={a.name}
+                alt={a.displayName || a.name}
                 className="rounded-[10px] object-cover flex-shrink-0"
                 style={{ width: 24, height: 24 }}
               />
@@ -67,7 +67,7 @@ export function AttachmentChips({
               className="text-[11px] font-medium truncate min-w-0 flex-1"
               style={{ color: colors.textPrimary }}
             >
-              {a.name}
+              {a.displayName || a.name}
             </span>
 
             {/* Remove button */}
