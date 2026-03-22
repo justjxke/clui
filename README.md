@@ -2,11 +2,7 @@
 
 A lightweight, transparent desktop overlay for Codex on macOS. CLUI wraps the Codex CLI/app-server in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
 
-## Demo
-
-[![Watch the demo](https://img.youtube.com/vi/NqRBIpaA4Fk/maxresdefault.jpg)](https://www.youtube.com/watch?v=NqRBIpaA4Fk)
-
-<p align="center"><a href="https://www.youtube.com/watch?v=NqRBIpaA4Fk">▶ Watch the full demo on YouTube</a></p>
+CleanShot 2026-03-22 at 13.10.39@2x.png
 
 ## Features
 
@@ -52,8 +48,6 @@ Open the `clui` folder in Finder and double-click `install-app.command`.
 > **First launch:** macOS may block the app because it's unsigned. Go to **System Settings → Privacy & Security → Open Anyway**. You only need to do this once.
 > **Folder cleanup:** the installer removes temporary `dist/` and `release/` folders after a successful install to keep the repo tidy.
 
-<p align="center"><img src="docs/shortcut.png" width="520" alt="Press Option + Space to show or hide CLUI" /></p>
-
 After the initial install, just open **CLUI** from your Applications folder or Spotlight.
 
 <details>
@@ -79,7 +73,7 @@ cd clui
 ./commands/start.command
 ```
 
-> Press **⌥ + Space** to show/hide the overlay. If your macOS input source claims that combo, use **Cmd+Shift+K**.
+> Press **⌥ + Space** to show/hide the overlay. If your macOS input source claims that combo, use **Cmd+Shift+K**, or set a custom keybind in the ... menu.
 
 To stop:
 
