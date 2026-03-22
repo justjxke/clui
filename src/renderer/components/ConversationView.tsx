@@ -11,6 +11,7 @@ import { useSessionStore } from '../stores/sessionStore'
 import { PermissionCard } from './PermissionCard'
 import { PermissionDeniedCard } from './PermissionDeniedCard'
 import { useColors, useThemeStore } from '../theme'
+import { formatAccelerator } from '../lib/hotkeys'
 import type { Message } from '../../shared/types'
 
 // ─── Constants ───
@@ -159,7 +160,11 @@ export function ConversationView() {
             <button
               onClick={handleLoadOlder}
               className="text-[11px] px-3 py-1 rounded-full transition-colors"
-              style={{ color: colors.textTertiary, border: `1px solid ${colors.toolBorder}` }}
+              style={{
+                color: colors.textSecondary,
+                border: `1px solid ${colors.toolBorder}`,
+                background: colors.surfaceHover,
+              }}
             >
               Load {Math.min(PAGE_SIZE, hiddenCount)} older messages ({hiddenCount} hidden)
             </button>
@@ -202,7 +207,7 @@ export function ConversationView() {
           {tab.permissionDenied && (
             <PermissionDeniedCard
               tools={tab.permissionDenied.tools}
-              sessionId={tab.claudeSessionId}
+              threadId={tab.threadId}
               projectPath={staticInfo?.projectPath || process.cwd()}
               onDismiss={() => {
                 useSessionStore.setState((s) => ({
@@ -259,7 +264,12 @@ export function ConversationView() {
               <button
                 onClick={handleRetry}
                 className="flex items-center gap-1 rounded-full px-2 py-0.5 transition-colors"
-                style={{ color: colors.accent, fontSize: 11 }}
+                style={{
+                  color: colors.accent,
+                  fontSize: 11,
+                  background: colors.accentLight,
+                  border: `1px solid ${colors.accentBorder}`,
+                }}
               >
                 <ArrowCounterClockwise size={10} />
                 Retry
@@ -285,7 +295,10 @@ export function ConversationView() {
 
 function EmptyState() {
   const setBaseDirectory = useSessionStore((s) => s.setBaseDirectory)
+  const hotkey = useSessionStore((s) => s.staticInfo?.hotkey || 'Alt+Space')
   const colors = useColors()
+  const [isHovered, setIsHovered] = useState(false)
+  const [isPressed, setIsPressed] = useState(false)
 
   const handleChooseFolder = async () => {
     const dir = await window.clui.selectDirectory()
@@ -303,17 +316,25 @@ function EmptyState() {
         onClick={handleChooseFolder}
         className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg transition-colors"
         style={{
-          color: colors.accent,
-          background: colors.surfaceHover,
-          border: 'none',
+          color: isPressed ? colors.textPrimary : colors.textSecondary,
+          background: isPressed ? colors.surfaceActive : isHovered ? colors.surfaceHover : colors.surfacePrimary,
+          border: `1px solid ${isPressed ? colors.accentBorderMedium : colors.containerBorder}`,
+          boxShadow: isPressed ? `inset 0 1px 0 ${colors.accentBorder}` : 'none',
           cursor: 'pointer',
         }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => {
+          setIsHovered(false)
+          setIsPressed(false)
+        }}
+        onMouseDown={() => setIsPressed(true)}
+        onMouseUp={() => setIsPressed(false)}
       >
         <FolderOpen size={13} />
         Choose folder
       </button>
       <span className="text-[11px]" style={{ color: colors.textTertiary }}>
-        Press <strong style={{ color: colors.textSecondary }}>⌥ + Space</strong> to show/hide this overlay
+        Press <strong style={{ color: colors.textSecondary }}>{formatAccelerator(hotkey)}</strong> to show/hide this overlay
       </span>
     </div>
   )

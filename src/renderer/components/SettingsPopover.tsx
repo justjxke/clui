@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { DotsThree, Bell, ArrowsOutSimple, Moon } from '@phosphor-icons/react'
+import { DotsThree, Bell, ArrowsOutSimple, Moon, Keyboard, Power } from '@phosphor-icons/react'
 import { useThemeStore } from '../theme'
 import { useSessionStore } from '../stores/sessionStore'
 import { usePopoverLayer } from './PopoverLayer'
 import { useColors } from '../theme'
+import { formatAccelerator } from '../lib/hotkeys'
 
 function RowToggle({
   checked,
@@ -34,11 +35,37 @@ function RowToggle({
         className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full transition-all"
         style={{
           left: checked ? 18 : 2,
-          background: '#fff',
+          background: colors.textOnAccent,
         }}
       />
     </button>
   )
+}
+
+function isModifierKey(key: string): boolean {
+  return ['Shift', 'Meta', 'Control', 'Alt'].includes(key)
+}
+
+function eventToAccelerator(event: KeyboardEvent): string | null {
+  const modifiers: string[] = []
+  if (event.metaKey) modifiers.push('CommandOrControl')
+  else if (event.ctrlKey) modifiers.push('Control')
+  if (event.altKey) modifiers.push('Alt')
+  if (event.shiftKey) modifiers.push('Shift')
+
+  let key = event.key
+  if (isModifierKey(key)) return null
+
+  if (key === ' ') key = 'Space'
+  else if (key === 'Escape') key = 'Esc'
+  else if (key === 'ArrowUp') key = 'Up'
+  else if (key === 'ArrowDown') key = 'Down'
+  else if (key === 'ArrowLeft') key = 'Left'
+  else if (key === 'ArrowRight') key = 'Right'
+  else if (key.length === 1) key = key.toUpperCase()
+
+  if (!key || modifiers.length === 0) return null
+  return [...modifiers, key].join('+')
 }
 
 /* ─── Settings popover ─── */
@@ -51,8 +78,14 @@ export function SettingsPopover() {
   const expandedUI = useThemeStore((s) => s.expandedUI)
   const setExpandedUI = useThemeStore((s) => s.setExpandedUI)
   const isExpanded = useSessionStore((s) => s.isExpanded)
+  const configuredHotkey = useSessionStore((s) => s.staticInfo?.hotkey || 'Alt+Space')
+  const launchOnStartup = useSessionStore((s) => s.launchOnStartup)
+  const setLaunchOnStartup = useSessionStore((s) => s.setLaunchOnStartup)
   const popoverLayer = usePopoverLayer()
   const colors = useColors()
+  const [hotkey, setHotkey] = useState(configuredHotkey)
+  const [recordingHotkey, setRecordingHotkey] = useState(false)
+  const [hotkeyError, setHotkeyError] = useState<string | null>(null)
 
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -120,6 +153,48 @@ export function SettingsPopover() {
     }
   }, [open, expandedUI, isExpanded, updatePos])
 
+  useEffect(() => {
+    setHotkey(configuredHotkey)
+  }, [configuredHotkey])
+
+  useEffect(() => {
+    if (!recordingHotkey) return
+
+    const onKeyDown = async (event: KeyboardEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (event.key === 'Escape') {
+        setRecordingHotkey(false)
+        setHotkeyError(null)
+        return
+      }
+
+      const accelerator = eventToAccelerator(event)
+      if (!accelerator) {
+        setHotkeyError('Use at least one modifier key.')
+        return
+      }
+
+      const result = await window.clui.setHotkey(accelerator)
+      if (result.ok) {
+        setHotkey(result.accelerator)
+        useSessionStore.setState((state) => ({
+          staticInfo: state.staticInfo
+            ? { ...state.staticInfo, hotkey: result.accelerator }
+            : state.staticInfo,
+        }))
+        setRecordingHotkey(false)
+        setHotkeyError(null)
+      } else {
+        setHotkeyError(result.error || 'Shortcut could not be registered.')
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [recordingHotkey])
+
   const handleToggle = () => {
     if (!open) updatePos()
     setOpen((o) => !o)
@@ -131,7 +206,7 @@ export function SettingsPopover() {
         ref={triggerRef}
         onClick={handleToggle}
         className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors"
-        style={{ color: colors.textTertiary }}
+        style={{ color: colors.textTertiary, background: open ? colors.surfaceHover : 'transparent' }}
         title="Settings"
       >
         <DotsThree size={16} weight="bold" />
@@ -184,6 +259,28 @@ export function SettingsPopover() {
 
             <div style={{ height: 1, background: colors.popoverBorder }} />
 
+            {/* Startup launch */}
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Power size={14} style={{ color: colors.textTertiary }} />
+                  <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                    Load app on startup
+                  </div>
+                </div>
+                <RowToggle
+                  checked={launchOnStartup}
+                  onChange={(next) => {
+                    setLaunchOnStartup(next)
+                  }}
+                  colors={colors}
+                  label="Toggle load app on startup"
+                />
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
             {/* Notification sound */}
             <div>
               <div className="flex items-center justify-between gap-3">
@@ -200,6 +297,44 @@ export function SettingsPopover() {
                   label="Toggle notification sound"
                 />
               </div>
+            </div>
+
+            <div style={{ height: 1, background: colors.popoverBorder }} />
+
+            <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Keyboard size={14} style={{ color: colors.textTertiary }} />
+                  <div>
+                    <div className="text-[12px] font-medium" style={{ color: colors.textPrimary }}>
+                      Open hotkey
+                    </div>
+                    <div className="text-[10px]" style={{ color: colors.textTertiary, marginTop: 2 }}>
+                      {recordingHotkey ? 'Press a shortcut' : formatAccelerator(hotkey)}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setRecordingHotkey((prev) => !prev)
+                    setHotkeyError(null)
+                  }}
+                  className="text-[10px] font-medium px-2.5 py-1 rounded-full transition-colors"
+                  style={{
+                    background: recordingHotkey ? colors.accent : colors.surfacePrimary,
+                    color: recordingHotkey ? colors.textOnAccent : colors.textSecondary,
+                    border: `1px solid ${recordingHotkey ? colors.accent : colors.containerBorder}`,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {recordingHotkey ? 'Cancel' : 'Record'}
+                </button>
+              </div>
+              {hotkeyError && (
+                <div className="text-[10px]" style={{ color: colors.statusError, marginTop: 6 }}>
+                  {hotkeyError}
+                </div>
+              )}
             </div>
 
             <div style={{ height: 1, background: colors.popoverBorder }} />

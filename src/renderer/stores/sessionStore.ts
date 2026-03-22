@@ -1,18 +1,13 @@
 import { create } from 'zustand'
-import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus } from '../../shared/types'
+import type { TabStatus, NormalizedEvent, EnrichedError, Message, TabState, Attachment, CatalogPlugin, PluginStatus, ModelOption } from '../../shared/types'
 import { useThemeStore } from '../theme'
 import notificationSrc from '../../../resources/notification.mp3'
 
 // ─── Known models ───
 
-export const AVAILABLE_MODELS = [
-  { id: 'claude-opus-4-6', label: 'Opus 4.6' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
-] as const
+export const AVAILABLE_MODELS: ModelOption[] = []
 
 function normalizeModelId(modelId: string): string {
-  // Claude sometimes appends context window hints like "[1m]" to model IDs.
   return modelId.replace(/\[[^\]]+\]/g, '').trim()
 }
 
@@ -25,17 +20,6 @@ export function getModelDisplayLabel(modelId: string): string {
     return has1MContext ? `${known.label} (1M)` : known.label
   }
 
-  // Fallback for future model IDs not yet listed in AVAILABLE_MODELS.
-  const compact = normalizedId
-    .replace(/^claude-/, '')
-    .replace(/-\d{8}$/, '')
-  const familyMatch = compact.match(/^(opus|sonnet|haiku)-(\d+)-(\d+)$/i)
-  if (familyMatch) {
-    const family = familyMatch[1][0].toUpperCase() + familyMatch[1].slice(1).toLowerCase()
-    const label = `${family} ${familyMatch[2]}.${familyMatch[3]}`
-    return has1MContext ? `${label} (1M)` : label
-  }
-
   return has1MContext ? `${normalizedId} (1M)` : normalizedId
 }
 
@@ -45,8 +29,13 @@ interface StaticInfo {
   version: string
   email: string | null
   subscriptionType: string | null
+  models: ModelOption[]
+  skills: string[]
   projectPath: string
   homePath: string
+  hotkey: string
+  permissionMode: 'ask' | 'auto'
+  launchOnStartup: boolean
 }
 
 interface State {
@@ -60,6 +49,7 @@ interface State {
   preferredModel: string | null
   /** Global permission mode: 'ask' shows cards, 'auto' auto-approves all tool calls */
   permissionMode: 'ask' | 'auto'
+  launchOnStartup: boolean
 
   // Marketplace state
   marketplaceOpen: boolean
@@ -75,6 +65,7 @@ interface State {
   initStaticInfo: () => Promise<void>
   setPreferredModel: (model: string | null) => void
   setPermissionMode: (mode: 'ask' | 'auto') => void
+  setLaunchOnStartup: (enabled: boolean) => Promise<void>
   createTab: () => Promise<string>
   selectTab: (tabId: string) => void
   closeTab: (tabId: string) => void
@@ -124,9 +115,10 @@ async function playNotificationIfHidden(): Promise<void> {
 function makeLocalTab(): TabState {
   return {
     id: crypto.randomUUID(),
-    claudeSessionId: null,
+    threadId: null,
     status: 'idle',
     activeRequestId: null,
+    activeTurnId: null,
     hasUnread: false,
     currentActivity: '',
     permissionQueue: [],
@@ -156,6 +148,7 @@ export const useSessionStore = create<State>((set, get) => ({
   staticInfo: null,
   preferredModel: null,
   permissionMode: 'ask',
+  launchOnStartup: false,
 
   // Marketplace
   marketplaceOpen: false,
@@ -169,16 +162,27 @@ export const useSessionStore = create<State>((set, get) => ({
 
   initStaticInfo: async () => {
     try {
-      const result = await window.clui.start()
+      const [result, hotkey] = await Promise.all([
+        window.clui.start(),
+        window.clui.getHotkey(),
+      ])
       set({
         staticInfo: {
           version: result.version || 'unknown',
           email: result.auth?.email || null,
           subscriptionType: result.auth?.subscriptionType || null,
+          models: result.models || [],
+          skills: result.skills || [],
           projectPath: result.projectPath || '~',
           homePath: result.homePath || '~',
+          hotkey: hotkey.accelerator || 'Alt+Space',
+          permissionMode: result.permissionMode || 'ask',
+          launchOnStartup: !!result.launchOnStartup,
         },
+        permissionMode: result.permissionMode || 'ask',
+        launchOnStartup: !!result.launchOnStartup,
       })
+      AVAILABLE_MODELS.splice(0, AVAILABLE_MODELS.length, ...(result.models || []))
     } catch {}
   },
 
@@ -189,6 +193,30 @@ export const useSessionStore = create<State>((set, get) => ({
   setPermissionMode: (mode) => {
     set({ permissionMode: mode })
     window.clui.setPermissionMode(mode)
+  },
+
+  setLaunchOnStartup: async (enabled) => {
+    const previous = get().launchOnStartup
+    const previousStaticInfo = get().staticInfo
+    set({
+      launchOnStartup: enabled,
+      staticInfo: previousStaticInfo
+        ? { ...previousStaticInfo, launchOnStartup: enabled }
+        : previousStaticInfo,
+    })
+    try {
+      const result = await window.clui.setLaunchOnStartup(enabled)
+      if (!result.ok) {
+        throw new Error(result.error || 'Unable to update startup launch setting.')
+      }
+    } catch {
+      set({
+        launchOnStartup: previous,
+        staticInfo: previousStaticInfo
+          ? { ...previousStaticInfo, launchOnStartup: previous }
+          : previousStaticInfo,
+      })
+    }
   },
 
   createTab: async () => {
@@ -282,13 +310,12 @@ export const useSessionStore = create<State>((set, get) => ({
       const installedSet = new Set(installed.map((n) => n.toLowerCase()))
       const pluginStates: Record<string, PluginStatus> = {}
       for (const p of catalog.plugins) {
-        // For SKILL.md skills: match individual name against ~/.claude/skills/ dirs
-        // For CLI plugins: match installName or "installName@marketplace" against installed_plugins.json
-        const candidates = p.isSkillMd
-          ? [p.installName]
-          : [p.installName, `${p.installName}@${p.marketplace}`]
-        const isInstalled = candidates.some((c) => installedSet.has(c.toLowerCase()))
-        pluginStates[p.id] = isInstalled ? 'installed' : 'not_installed'
+        const isInstalled = installedSet.has(p.installName.toLowerCase())
+        pluginStates[p.id] = isInstalled
+          ? 'installed'
+          : p.installable
+            ? 'not_installed'
+            : 'browse_only'
       }
       set({
         marketplaceCatalog: catalog.plugins,
@@ -341,9 +368,8 @@ export const useSessionStore = create<State>((set, get) => ({
 
   buildYourOwn: () => {
     set({ marketplaceOpen: false, isExpanded: true })
-    // Small delay to let the UI transition
     setTimeout(() => {
-      get().sendMessage('Help me create a new Claude Code skill')
+      get().sendMessage('Help me create a new Codex skill')
     }, 100)
   },
 
@@ -382,8 +408,6 @@ export const useSessionStore = create<State>((set, get) => ({
     const defaultDir = projectPath || get().staticInfo?.homePath || '~'
     try {
       const { tabId } = await window.clui.createTab()
-
-      // Load previous conversation messages from the JSONL file
       const history = await window.clui.loadSession(sessionId, defaultDir).catch(() => [])
       const messages: Message[] = history.map((m) => ({
         id: nextMsgId(),
@@ -397,7 +421,7 @@ export const useSessionStore = create<State>((set, get) => ({
       const tab: TabState = {
         ...makeLocalTab(),
         id: tabId,
-        claudeSessionId: sessionId,
+        threadId: sessionId,
         title: title || 'Resumed Session',
         workingDirectory: defaultDir,
         hasChosenDirectory: !!projectPath,
@@ -408,11 +432,10 @@ export const useSessionStore = create<State>((set, get) => ({
         activeTabId: tab.id,
         isExpanded: true,
       }))
-      // Don't call initSession — the first real prompt will use --resume with the sessionId
       return tabId
     } catch {
       const tab = makeLocalTab()
-      tab.claudeSessionId = sessionId
+      tab.threadId = sessionId
       tab.title = title || 'Resumed Session'
       tab.workingDirectory = defaultDir
       tab.hasChosenDirectory = !!projectPath
@@ -445,14 +468,11 @@ export const useSessionStore = create<State>((set, get) => ({
   // ─── Permission response ───
 
   respondPermission: (tabId, questionId, optionId) => {
-    // Send to backend
     window.clui.respondPermission(tabId, questionId, optionId).catch(() => {})
-
-    // Remove answered item from queue; show next tool's activity or clear
     set((s) => ({
       tabs: s.tabs.map((t) => {
         if (t.id !== tabId) return t
-        const remaining = t.permissionQueue.filter((p) => p.questionId !== questionId)
+        const remaining = t.permissionQueue.filter((p) => p.requestId !== questionId)
         return {
           ...t,
           permissionQueue: remaining,
@@ -503,7 +523,8 @@ export const useSessionStore = create<State>((set, get) => ({
               ...t,
               workingDirectory: dir,
               hasChosenDirectory: true,
-              claudeSessionId: null,
+              threadId: null,
+              activeTurnId: null,
               additionalDirs: [],
             }
           : t
@@ -614,7 +635,7 @@ export const useSessionStore = create<State>((set, get) => ({
     window.clui.prompt(activeTabId, requestId, {
       prompt: fullPrompt,
       projectPath: resolvedPath,
-      sessionId: tab.claudeSessionId || undefined,
+      threadId: tab.threadId || undefined,
       model: preferredModel || undefined,
       addDirs: tab.additionalDirs.length > 0 ? tab.additionalDirs : undefined,
     }).catch((err: Error) => {
@@ -639,17 +660,14 @@ export const useSessionStore = create<State>((set, get) => ({
 
         switch (event.type) {
           case 'session_init':
-            updated.claudeSessionId = event.sessionId
+            updated.threadId = event.threadId
             updated.sessionModel = event.model
-            updated.sessionTools = event.tools
             updated.sessionMcpServers = event.mcpServers
             updated.sessionSkills = event.skills
             updated.sessionVersion = event.version
-            // Don't change status/activity for warmup inits — they're invisible
             if (!event.isWarmup) {
               updated.status = 'running'
               updated.currentActivity = 'Thinking...'
-              // Move the first queued prompt into the timeline (it's now being processed)
               if (updated.queuedPrompts.length > 0) {
                 const [nextPrompt, ...rest] = updated.queuedPrompts
                 updated.queuedPrompts = rest
@@ -780,7 +798,7 @@ export const useSessionStore = create<State>((set, get) => ({
               durationMs: event.durationMs,
               numTurns: event.numTurns,
               usage: event.usage,
-              sessionId: event.sessionId,
+              threadId: event.threadId,
             }
             // ── Final text fallback ──
             // If neither text_chunks nor task_update text produced an assistant message,
@@ -848,19 +866,8 @@ export const useSessionStore = create<State>((set, get) => ({
             break
 
           case 'permission_request': {
-            const newReq: import('../../shared/types').PermissionRequest = {
-              questionId: event.questionId,
-              toolTitle: event.toolName,
-              toolDescription: event.toolDescription,
-              toolInput: event.toolInput,
-              options: event.options.map((o) => ({
-                optionId: o.id,
-                kind: o.kind,
-                label: o.label,
-              })),
-            }
-            updated.permissionQueue = [...updated.permissionQueue, newReq]
-            updated.currentActivity = `Waiting for permission: ${event.toolName}`
+            updated.permissionQueue = [...updated.permissionQueue, event.request]
+            updated.currentActivity = `Waiting for permission: ${event.request.toolTitle}`
             break
           }
 

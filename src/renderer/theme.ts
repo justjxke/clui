@@ -1,6 +1,6 @@
 /**
  * CLUI Design Tokens — Dual theme (dark + light)
- * Colors derived from ChatCN oklch system and design-fixed.html reference.
+ * Reworked toward a cooler Codex/Cursor-inspired palette.
  */
 import { create } from 'zustand'
 
@@ -8,199 +8,199 @@ import { create } from 'zustand'
 
 const darkColors = {
   // Container (glass surfaces)
-  containerBg: '#242422',
-  containerBgCollapsed: '#21211e',
-  containerBorder: '#3b3b36',
-  containerShadow: '0 8px 28px rgba(0, 0, 0, 0.35), 0 1px 6px rgba(0, 0, 0, 0.25)',
-  cardShadow: '0 2px 8px rgba(0,0,0,0.35)',
-  cardShadowCollapsed: '0 2px 6px rgba(0,0,0,0.4)',
+  containerBg: '#111111',
+  containerBgCollapsed: '#0d0d0d',
+  containerBorder: '#2a2a2a',
+  containerShadow: '0 18px 48px rgba(0, 0, 0, 0.52), 0 2px 14px rgba(0, 0, 0, 0.34)',
+  cardShadow: '0 6px 18px rgba(0, 0, 0, 0.38)',
+  cardShadowCollapsed: '0 6px 14px rgba(0, 0, 0, 0.46)',
 
   // Surface layers
-  surfacePrimary: '#353530',
-  surfaceSecondary: '#42423d',
-  surfaceHover: 'rgba(255, 255, 255, 0.05)',
-  surfaceActive: 'rgba(255, 255, 255, 0.08)',
+  surfacePrimary: '#171717',
+  surfaceSecondary: '#242424',
+  surfaceHover: 'rgba(252, 252, 252, 0.045)',
+  surfaceActive: 'rgba(252, 252, 252, 0.08)',
 
   // Input
   inputBg: 'transparent',
-  inputBorder: '#3b3b36',
-  inputFocusBorder: 'rgba(217, 119, 87, 0.4)',
-  inputPillBg: '#2a2a27',
+  inputBorder: '#2d2d2d',
+  inputFocusBorder: 'rgba(1, 105, 204, 0.42)',
+  inputPillBg: '#141414',
 
   // Text
-  textPrimary: '#ccc9c0',
-  textSecondary: '#c0bdb2',
-  textTertiary: '#76766e',
-  textMuted: '#353530',
+  textPrimary: '#fcfcfc',
+  textSecondary: '#d1d1d1',
+  textTertiary: '#8d8d8d',
+  textMuted: '#3a3a3a',
 
-  // Accent — orange
-  accent: '#d97757',
-  accentLight: 'rgba(217, 119, 87, 0.1)',
-  accentSoft: 'rgba(217, 119, 87, 0.15)',
+  // Accent — product blue
+  accent: '#0169CC',
+  accentLight: 'rgba(1, 105, 204, 0.12)',
+  accentSoft: 'rgba(1, 105, 204, 0.18)',
 
   // Status dots
-  statusIdle: '#8a8a80',
-  statusRunning: '#d97757',
-  statusRunningBg: 'rgba(217, 119, 87, 0.1)',
-  statusComplete: '#7aac8c',
-  statusCompleteBg: 'rgba(122, 172, 140, 0.1)',
-  statusError: '#c47060',
-  statusErrorBg: 'rgba(196, 112, 96, 0.08)',
-  statusDead: '#c47060',
-  statusPermission: '#d97757',
-  statusPermissionGlow: 'rgba(217, 119, 87, 0.4)',
+  statusIdle: '#7c7c7c',
+  statusRunning: '#0169CC',
+  statusRunningBg: 'rgba(1, 105, 204, 0.14)',
+  statusComplete: '#58c592',
+  statusCompleteBg: 'rgba(88, 197, 146, 0.12)',
+  statusError: '#f07b7b',
+  statusErrorBg: 'rgba(240, 123, 123, 0.1)',
+  statusDead: '#f07b7b',
+  statusPermission: '#ffbe5c',
+  statusPermissionGlow: 'rgba(255, 190, 92, 0.28)',
 
   // Tab
-  tabActive: '#353530',
-  tabActiveBorder: '#4a4a45',
+  tabActive: '#1d1d1d',
+  tabActiveBorder: 'rgba(1, 105, 204, 0.42)',
   tabInactive: 'transparent',
-  tabHover: 'rgba(255, 255, 255, 0.05)',
+  tabHover: 'rgba(252, 252, 252, 0.04)',
 
   // User message bubble
-  userBubble: '#353530',
-  userBubbleBorder: '#4a4a45',
-  userBubbleText: '#ccc9c0',
+  userBubble: '#1b1b1b',
+  userBubbleBorder: '#303030',
+  userBubbleText: '#fcfcfc',
 
   // Tool card
-  toolBg: '#353530',
-  toolBorder: '#4a4a45',
-  toolRunningBorder: 'rgba(217, 119, 87, 0.3)',
-  toolRunningBg: 'rgba(217, 119, 87, 0.05)',
+  toolBg: '#171717',
+  toolBorder: '#2c2c2c',
+  toolRunningBorder: 'rgba(1, 105, 204, 0.26)',
+  toolRunningBg: 'rgba(1, 105, 204, 0.06)',
 
   // Timeline
-  timelineLine: '#353530',
-  timelineNode: 'rgba(217, 119, 87, 0.2)',
-  timelineNodeActive: '#d97757',
+  timelineLine: '#252525',
+  timelineNode: 'rgba(1, 105, 204, 0.16)',
+  timelineNodeActive: '#0169CC',
 
   // Scrollbar
-  scrollThumb: 'rgba(255, 255, 255, 0.15)',
-  scrollThumbHover: 'rgba(255, 255, 255, 0.25)',
+  scrollThumb: 'rgba(252, 252, 252, 0.12)',
+  scrollThumbHover: 'rgba(252, 252, 252, 0.2)',
 
   // Stop button
   stopBg: '#ef4444',
   stopHover: '#dc2626',
 
   // Send button
-  sendBg: '#d97757',
-  sendHover: '#c96442',
-  sendDisabled: 'rgba(217, 119, 87, 0.3)',
+  sendBg: '#0169CC',
+  sendHover: '#0057aa',
+  sendDisabled: 'rgba(1, 105, 204, 0.3)',
 
   // Popover
-  popoverBg: '#292927',
-  popoverBorder: '#3b3b36',
-  popoverShadow: '0 4px 20px rgba(0,0,0,0.3), 0 1px 4px rgba(0,0,0,0.2)',
+  popoverBg: '#151515',
+  popoverBorder: '#2d2d2d',
+  popoverShadow: '0 16px 40px rgba(0, 0, 0, 0.48), 0 2px 10px rgba(0, 0, 0, 0.28)',
 
   // Code block
-  codeBg: '#1a1a18',
+  codeBg: '#101010',
 
   // Mic button
-  micBg: '#353530',
-  micColor: '#c0bdb2',
-  micDisabled: '#42423d',
+  micBg: '#1b1b1b',
+  micColor: '#d1d1d1',
+  micDisabled: '#282828',
 
   // Placeholder
-  placeholder: '#6b6b60',
+  placeholder: '#707070',
 
   // Disabled button color
-  btnDisabled: '#42423d',
+  btnDisabled: '#2b2b2b',
 
   // Text on accent backgrounds
-  textOnAccent: '#ffffff',
+  textOnAccent: '#fcfcfc',
 
   // Button hover (CSS-only stack buttons)
-  btnHoverColor: '#c0bdb2',
-  btnHoverBg: '#302f2d',
+  btnHoverColor: '#fcfcfc',
+  btnHoverBg: '#1d1d1d',
 
   // Accent border variants (replaces hex-alpha concatenation antipattern)
-  accentBorder: 'rgba(217, 119, 87, 0.19)',
-  accentBorderMedium: 'rgba(217, 119, 87, 0.25)',
+  accentBorder: 'rgba(1, 105, 204, 0.22)',
+  accentBorderMedium: 'rgba(1, 105, 204, 0.32)',
 
   // Permission card (amber)
-  permissionBorder: 'rgba(245, 158, 11, 0.3)',
-  permissionShadow: '0 2px 12px rgba(245, 158, 11, 0.08)',
-  permissionHeaderBg: 'rgba(245, 158, 11, 0.06)',
-  permissionHeaderBorder: 'rgba(245, 158, 11, 0.12)',
+  permissionBorder: 'rgba(255, 190, 92, 0.3)',
+  permissionShadow: '0 8px 24px rgba(255, 190, 92, 0.08)',
+  permissionHeaderBg: 'rgba(255, 190, 92, 0.08)',
+  permissionHeaderBorder: 'rgba(255, 190, 92, 0.16)',
 
   // Permission allow (green)
-  permissionAllowBg: 'rgba(34, 197, 94, 0.1)',
-  permissionAllowHoverBg: 'rgba(34, 197, 94, 0.22)',
-  permissionAllowBorder: 'rgba(34, 197, 94, 0.25)',
+  permissionAllowBg: 'rgba(88, 197, 146, 0.12)',
+  permissionAllowHoverBg: 'rgba(88, 197, 146, 0.22)',
+  permissionAllowBorder: 'rgba(88, 197, 146, 0.28)',
 
   // Permission deny (red)
-  permissionDenyBg: 'rgba(239, 68, 68, 0.08)',
-  permissionDenyHoverBg: 'rgba(239, 68, 68, 0.18)',
-  permissionDenyBorder: 'rgba(239, 68, 68, 0.22)',
+  permissionDenyBg: 'rgba(240, 123, 123, 0.1)',
+  permissionDenyHoverBg: 'rgba(240, 123, 123, 0.18)',
+  permissionDenyBorder: 'rgba(240, 123, 123, 0.24)',
 
   // Permission denied card
-  permissionDeniedBorder: 'rgba(196, 112, 96, 0.3)',
-  permissionDeniedHeaderBorder: 'rgba(196, 112, 96, 0.12)',
+  permissionDeniedBorder: 'rgba(240, 123, 123, 0.28)',
+  permissionDeniedHeaderBorder: 'rgba(240, 123, 123, 0.16)',
 } as const
 
 const lightColors = {
   // Container (glass surfaces)
-  containerBg: '#f9f8f5',
-  containerBgCollapsed: '#f4f2ed',
-  containerBorder: '#dddad2',
-  containerShadow: '0 8px 28px rgba(0, 0, 0, 0.08), 0 1px 6px rgba(0, 0, 0, 0.04)',
-  cardShadow: '0 2px 8px rgba(0,0,0,0.06)',
-  cardShadowCollapsed: '0 2px 6px rgba(0,0,0,0.08)',
+  containerBg: '#fcfcfc',
+  containerBgCollapsed: '#f4f4f4',
+  containerBorder: '#e7e7e7',
+  containerShadow: '0 18px 42px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04)',
+  cardShadow: '0 6px 18px rgba(0, 0, 0, 0.06)',
+  cardShadowCollapsed: '0 4px 12px rgba(0, 0, 0, 0.06)',
 
   // Surface layers
-  surfacePrimary: '#edeae0',
-  surfaceSecondary: '#dddad2',
-  surfaceHover: 'rgba(0, 0, 0, 0.04)',
-  surfaceActive: 'rgba(0, 0, 0, 0.06)',
+  surfacePrimary: '#f6f6f6',
+  surfaceSecondary: '#ebebeb',
+  surfaceHover: 'rgba(17, 17, 17, 0.04)',
+  surfaceActive: 'rgba(17, 17, 17, 0.08)',
 
   // Input
   inputBg: 'transparent',
-  inputBorder: '#dddad2',
-  inputFocusBorder: 'rgba(217, 119, 87, 0.4)',
+  inputBorder: '#e1e1e1',
+  inputFocusBorder: 'rgba(1, 105, 204, 0.28)',
   inputPillBg: '#ffffff',
 
   // Text
-  textPrimary: '#3c3929',
-  textSecondary: '#5a5749',
-  textTertiary: '#8a8a80',
-  textMuted: '#dddad2',
+  textPrimary: '#111111',
+  textSecondary: '#4a4a4a',
+  textTertiary: '#7a7a7a',
+  textMuted: '#dddddd',
 
-  // Accent — orange (same)
-  accent: '#d97757',
-  accentLight: 'rgba(217, 119, 87, 0.1)',
-  accentSoft: 'rgba(217, 119, 87, 0.12)',
+  // Accent — product blue
+  accent: '#0169CC',
+  accentLight: 'rgba(1, 105, 204, 0.1)',
+  accentSoft: 'rgba(1, 105, 204, 0.14)',
 
   // Status dots
-  statusIdle: '#8a8a80',
-  statusRunning: '#d97757',
-  statusRunningBg: 'rgba(217, 119, 87, 0.1)',
-  statusComplete: '#5a9e6f',
-  statusCompleteBg: 'rgba(90, 158, 111, 0.1)',
-  statusError: '#c47060',
-  statusErrorBg: 'rgba(196, 112, 96, 0.06)',
-  statusDead: '#c47060',
-  statusPermission: '#d97757',
-  statusPermissionGlow: 'rgba(217, 119, 87, 0.3)',
+  statusIdle: '#838383',
+  statusRunning: '#0169CC',
+  statusRunningBg: 'rgba(1, 105, 204, 0.12)',
+  statusComplete: '#2f9a6d',
+  statusCompleteBg: 'rgba(47, 154, 109, 0.1)',
+  statusError: '#d85757',
+  statusErrorBg: 'rgba(216, 87, 87, 0.08)',
+  statusDead: '#d85757',
+  statusPermission: '#ca8a04',
+  statusPermissionGlow: 'rgba(202, 138, 4, 0.24)',
 
   // Tab
-  tabActive: '#edeae0',
-  tabActiveBorder: '#dddad2',
+  tabActive: '#f4f4f4',
+  tabActiveBorder: 'rgba(1, 105, 204, 0.28)',
   tabInactive: 'transparent',
-  tabHover: 'rgba(0, 0, 0, 0.04)',
+  tabHover: 'rgba(17, 17, 17, 0.04)',
 
   // User message bubble
-  userBubble: '#edeae0',
-  userBubbleBorder: '#dddad2',
-  userBubbleText: '#3c3929',
+  userBubble: '#f4f4f4',
+  userBubbleBorder: '#e5e5e5',
+  userBubbleText: '#111111',
 
   // Tool card
-  toolBg: '#edeae0',
-  toolBorder: '#dddad2',
-  toolRunningBorder: 'rgba(217, 119, 87, 0.3)',
-  toolRunningBg: 'rgba(217, 119, 87, 0.05)',
+  toolBg: '#f6f6f6',
+  toolBorder: '#e5e5e5',
+  toolRunningBorder: 'rgba(1, 105, 204, 0.18)',
+  toolRunningBg: 'rgba(1, 105, 204, 0.05)',
 
   // Timeline
-  timelineLine: '#dddad2',
-  timelineNode: 'rgba(217, 119, 87, 0.2)',
-  timelineNodeActive: '#d97757',
+  timelineLine: '#e8e8e8',
+  timelineNode: 'rgba(1, 105, 204, 0.14)',
+  timelineNodeActive: '#0169CC',
 
   // Scrollbar
   scrollThumb: 'rgba(0, 0, 0, 0.1)',
@@ -211,39 +211,39 @@ const lightColors = {
   stopHover: '#dc2626',
 
   // Send button
-  sendBg: '#d97757',
-  sendHover: '#c96442',
-  sendDisabled: 'rgba(217, 119, 87, 0.3)',
+  sendBg: '#0169CC',
+  sendHover: '#0057aa',
+  sendDisabled: 'rgba(1, 105, 204, 0.24)',
 
   // Popover
-  popoverBg: '#f9f8f5',
-  popoverBorder: '#dddad2',
-  popoverShadow: '0 4px 20px rgba(0,0,0,0.1), 0 1px 4px rgba(0,0,0,0.06)',
+  popoverBg: '#fcfcfc',
+  popoverBorder: '#e5e5e5',
+  popoverShadow: '0 16px 36px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.04)',
 
   // Code block
-  codeBg: '#f0eee8',
+  codeBg: '#f6f6f6',
 
   // Mic button
-  micBg: '#edeae0',
-  micColor: '#5a5749',
-  micDisabled: '#c8c5bc',
+  micBg: '#f2f2f2',
+  micColor: '#4a4a4a',
+  micDisabled: '#e3e3e3',
 
   // Placeholder
-  placeholder: '#b0ada4',
+  placeholder: '#9a9a9a',
 
   // Disabled button color
-  btnDisabled: '#c8c5bc',
+  btnDisabled: '#dedede',
 
   // Text on accent backgrounds
   textOnAccent: '#ffffff',
 
   // Button hover (CSS-only stack buttons)
-  btnHoverColor: '#3c3929',
-  btnHoverBg: '#edeae0',
+  btnHoverColor: '#111111',
+  btnHoverBg: '#f2f2f2',
 
   // Accent border variants (replaces hex-alpha concatenation antipattern)
-  accentBorder: 'rgba(217, 119, 87, 0.19)',
-  accentBorderMedium: 'rgba(217, 119, 87, 0.25)',
+  accentBorder: 'rgba(1, 105, 204, 0.18)',
+  accentBorderMedium: 'rgba(1, 105, 204, 0.26)',
 
   // Permission card (amber)
   permissionBorder: 'rgba(245, 158, 11, 0.3)',

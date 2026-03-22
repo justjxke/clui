@@ -13,6 +13,8 @@ import { useSessionStore } from './stores/sessionStore'
 import { useColors, useThemeStore, spacing } from './theme'
 
 const TRANSITION = { duration: 0.26, ease: [0.4, 0, 0.1, 1] as const }
+const SHELL_TRANSITION = { duration: 0.18, ease: [0.22, 1, 0.36, 1] as const }
+const SHELL_EXIT_TRANSITION = { duration: 0.14, ease: [0.4, 0, 1, 1] as const }
 
 export default function App() {
   useClaudeEvents()
@@ -23,6 +25,9 @@ export default function App() {
   const colors = useColors()
   const setSystemTheme = useThemeStore((s) => s.setSystemTheme)
   const expandedUI = useThemeStore((s) => s.expandedUI)
+  const [shellVisible, setShellVisible] = React.useState(false)
+  const [staggerReady, setStaggerReady] = React.useState(false)
+  const hideTimeoutRef = React.useRef<number | null>(null)
 
   // ─── Theme initialization ───
   useEffect(() => {
@@ -55,6 +60,43 @@ export default function App() {
         }).catch(() => {})
       }
     })
+  }, [])
+
+  useEffect(() => {
+    const revealShell = () => {
+      if (hideTimeoutRef.current) {
+        window.clearTimeout(hideTimeoutRef.current)
+        hideTimeoutRef.current = null
+      }
+      setShellVisible(true)
+      window.setTimeout(() => setStaggerReady(true), 40)
+    }
+
+    revealShell()
+    const unsubShown = window.clui.onWindowShown(() => {
+      revealShell()
+    })
+    const unsubHideRequested = window.clui.onWindowHideRequested(() => {
+      onRequestHide()
+    })
+
+    const onRequestHide = () => {
+      setStaggerReady(false)
+      setShellVisible(false)
+      if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current)
+      hideTimeoutRef.current = window.setTimeout(() => {
+        window.clui.hideWindow()
+        hideTimeoutRef.current = null
+      }, 150)
+    }
+
+    window.addEventListener('clui:request-hide', onRequestHide)
+    return () => {
+      unsubShown()
+      unsubHideRequested()
+      window.removeEventListener('clui:request-hide', onRequestHide)
+      if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current)
+    }
   }, [])
 
   // OS-level click-through (RAF-throttled to avoid per-pixel IPC)
@@ -116,10 +158,28 @@ export default function App() {
 
   return (
     <PopoverLayerProvider>
-      <div className="flex flex-col justify-end h-full" style={{ background: 'transparent' }}>
+      <motion.div
+        className="flex flex-col justify-end h-full"
+        style={{ background: 'transparent' }}
+        initial={{ opacity: 0, y: 10, scale: 0.985 }}
+        animate={{
+          opacity: shellVisible ? 1 : 0,
+          y: shellVisible ? 0 : 8,
+          scale: shellVisible ? 1 : 0.99,
+        }}
+        transition={shellVisible ? SHELL_TRANSITION : SHELL_EXIT_TRANSITION}
+      >
 
         {/* ─── 460px content column, centered. Circles overflow left. ─── */}
-        <div style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)' }}>
+        <motion.div
+          style={{ width: contentWidth, position: 'relative', margin: '0 auto', transition: 'width 0.26s cubic-bezier(0.4, 0, 0.1, 1)' }}
+          initial={false}
+          animate={{
+            opacity: shellVisible ? 1 : 0,
+            y: shellVisible ? 0 : 6,
+          }}
+          transition={shellVisible ? { duration: 0.18, delay: 0.02, ease: [0.22, 1, 0.36, 1] } : SHELL_EXIT_TRANSITION}
+        >
 
           <AnimatePresence initial={false}>
             {marketplaceOpen && (
@@ -145,7 +205,7 @@ export default function App() {
                     data-clui-ui
                     className="glass-surface overflow-hidden no-drag"
                     style={{
-                      borderRadius: 24,
+                      borderRadius: 22,
                       maxHeight: 470,
                     }}
                   >
@@ -164,6 +224,7 @@ export default function App() {
           <motion.div
             data-clui-ui
             className="overflow-hidden flex flex-col drag-region"
+            initial={false}
             animate={{
               width: isExpanded ? cardExpandedWidth : cardCollapsedWidth,
               marginBottom: isExpanded ? 10 : -14,
@@ -172,20 +233,30 @@ export default function App() {
               background: isExpanded ? colors.containerBg : colors.containerBgCollapsed,
               borderColor: colors.containerBorder,
               boxShadow: isExpanded ? colors.cardShadow : colors.cardShadowCollapsed,
+              opacity: shellVisible ? 1 : 0,
+              y: shellVisible ? 0 : 8,
             }}
-            transition={TRANSITION}
+            transition={shellVisible ? { ...TRANSITION, delay: 0.03 } : SHELL_EXIT_TRANSITION}
             style={{
               borderWidth: 1,
               borderStyle: 'solid',
-              borderRadius: 20,
+              borderRadius: 18,
               position: 'relative',
               zIndex: isExpanded ? 20 : 10,
             }}
           >
             {/* Tab strip — always mounted */}
-            <div className="no-drag">
+            <motion.div
+              className="no-drag"
+              initial={false}
+              animate={{
+                opacity: shellVisible ? 1 : 0,
+                y: shellVisible ? 0 : 6,
+              }}
+              transition={shellVisible ? { duration: 0.16, delay: staggerReady ? 0 : 0.05, ease: [0.22, 1, 0.36, 1] } : SHELL_EXIT_TRANSITION}
+            >
               <TabStrip />
-            </div>
+            </motion.div>
 
             {/* Body — chat history only; the marketplace is a separate overlay above */}
             <motion.div
@@ -197,16 +268,34 @@ export default function App() {
               transition={TRANSITION}
               className="overflow-hidden no-drag"
             >
-              <div style={{ maxHeight: bodyMaxHeight }}>
+              <motion.div
+                style={{ maxHeight: bodyMaxHeight }}
+                initial={false}
+                animate={{
+                  opacity: shellVisible ? 1 : 0,
+                  y: shellVisible ? 0 : 8,
+                }}
+                transition={shellVisible ? { duration: 0.18, delay: staggerReady ? 0.03 : 0.08, ease: [0.22, 1, 0.36, 1] } : SHELL_EXIT_TRANSITION}
+              >
                 <ConversationView />
                 <StatusBar />
-              </div>
+              </motion.div>
             </motion.div>
           </motion.div>
 
           {/* ─── Input row — circles float outside left ─── */}
           {/* marginBottom: shadow buffer so the glass-surface drop shadow isn't clipped at the native window edge */}
-          <div data-clui-ui className="relative" style={{ minHeight: 46, zIndex: 15, marginBottom: 10 }}>
+          <motion.div
+            data-clui-ui
+            className="relative"
+            style={{ minHeight: 46, zIndex: 15, marginBottom: 10 }}
+            initial={false}
+            animate={{
+              opacity: shellVisible ? 1 : 0,
+              y: shellVisible ? 0 : 10,
+            }}
+            transition={shellVisible ? { duration: 0.18, delay: staggerReady ? 0.06 : 0.11, ease: [0.22, 1, 0.36, 1] } : SHELL_EXIT_TRANSITION}
+          >
             {/* Stacked circle buttons — expand on hover */}
             <div
               data-clui-ui
@@ -247,13 +336,19 @@ export default function App() {
             <div
               data-clui-ui
               className="glass-surface w-full"
-              style={{ minHeight: 50, borderRadius: 25, padding: '0 6px 0 16px', background: colors.inputPillBg }}
+              style={{
+                minHeight: 50,
+                borderRadius: 18,
+                padding: '0 6px 0 16px',
+                background: colors.inputPillBg,
+                borderColor: colors.inputBorder,
+              }}
             >
               <InputBar />
             </div>
-          </div>
-        </div>
-      </div>
+          </motion.div>
+        </motion.div>
+      </motion.div>
     </PopoverLayerProvider>
   )
 }

@@ -11,6 +11,7 @@ const INPUT_MAX_HEIGHT = 140
 const MULTILINE_ENTER_HEIGHT = 52
 const MULTILINE_EXIT_HEIGHT = 50
 const INLINE_CONTROLS_RESERVED_WIDTH = 104
+const VOICE_WAVE_BAR_COUNT = 40
 
 type VoiceState = 'idle' | 'recording' | 'transcribing'
 
@@ -22,14 +23,21 @@ export function InputBar() {
   const [input, setInput] = useState('')
   const [voiceState, setVoiceState] = useState<VoiceState>('idle')
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [voiceWaveform, setVoiceWaveform] = useState<number[]>(() => Array.from({ length: VOICE_WAVE_BAR_COUNT }, () => 0.08))
   const [slashFilter, setSlashFilter] = useState<string | null>(null)
   const [slashIndex, setSlashIndex] = useState(0)
   const [isMultiLine, setIsMultiLine] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLTextAreaElement | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
+  const audioStreamRef = useRef<MediaStream | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null)
+  const audioSinkRef = useRef<GainNode | null>(null)
+  const pcmChunksRef = useRef<Float32Array[]>([])
+  const inputSampleRateRef = useRef(16000)
+  const waveformRef = useRef<number[]>(Array.from({ length: VOICE_WAVE_BAR_COUNT }, () => 0.08))
 
   const sendMessage = useSessionStore((s) => s.sendMessage)
   const clearTab = useSessionStore((s) => s.clearTab)
@@ -58,6 +66,10 @@ export function InputBar() {
   useEffect(() => {
     textareaRef.current?.focus()
   }, [activeTabId])
+
+  const requestHide = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('clui:request-hide'))
+  }, [])
 
   // Focus textarea when window is shown (shortcut toggle, screenshot return)
   useEffect(() => {
@@ -136,9 +148,7 @@ export function InputBar() {
 
   useEffect(() => {
     return () => {
-      if (mediaRecorderRef.current?.state === 'recording') {
-        mediaRecorderRef.current.stop()
-      }
+      void teardownRecordingGraph()
       if (measureRef.current) {
         measureRef.current.remove()
         measureRef.current = null
@@ -185,7 +195,7 @@ export function InputBar() {
           const active = m.id === current || (!preferredModel && m.id === model)
           return `  ${active ? '\u25CF' : '\u25CB'} ${m.label} (${m.id})`
         })
-        const header = version ? `Claude Code ${version}` : 'Claude Code'
+        const header = version ? `Codex ${version}` : 'Codex'
         addSystemMessage(`${header}\n\n${lines.join('\n')}\n\nSwitch model: type /model <name>\n  e.g. /model sonnet`)
         break
       }
@@ -196,7 +206,7 @@ export function InputBar() {
             return `  ${icon} ${s.name} — ${s.status}`
           })
           addSystemMessage(`MCP Servers (${tab.sessionMcpServers.length}):\n${lines.join('\n')}`)
-        } else if (tab?.claudeSessionId) {
+        } else if (tab?.threadId) {
           addSystemMessage('No MCP servers connected in this session.')
         } else {
           addSystemMessage('No MCP data yet — send a message to start a session.')
@@ -207,7 +217,7 @@ export function InputBar() {
         if (tab?.sessionSkills && tab.sessionSkills.length > 0) {
           const lines = tab.sessionSkills.map((s) => `/${s}`)
           addSystemMessage(`Available skills (${tab.sessionSkills.length}):\n${lines.join('\n')}`)
-        } else if (tab?.claudeSessionId) {
+        } else if (tab?.threadId) {
           addSystemMessage('No skills available in this session.')
         } else {
           addSystemMessage('No session metadata yet — send a message first.')
@@ -292,7 +302,7 @@ export function InputBar() {
       if (e.key === 'Escape') { e.preventDefault(); setSlashFilter(null); return }
     }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
-    if (e.key === 'Escape' && !showSlashMenu) { window.clui.hideWindow() }
+    if (e.key === 'Escape' && !showSlashMenu) { requestHide() }
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -325,19 +335,73 @@ export function InputBar() {
   // ─── Voice ───
   const cancelledRef = useRef(false)
 
+  const teardownRecordingGraph = useCallback(async () => {
+    audioProcessorRef.current?.disconnect()
+    audioSourceRef.current?.disconnect()
+    audioSinkRef.current?.disconnect()
+    audioStreamRef.current?.getTracks().forEach((track) => track.stop())
+
+    audioProcessorRef.current = null
+    audioSourceRef.current = null
+    audioSinkRef.current = null
+    audioStreamRef.current = null
+
+    if (audioContextRef.current) {
+      try {
+        await audioContextRef.current.close()
+      } catch {}
+      audioContextRef.current = null
+    }
+
+    waveformRef.current = Array.from({ length: VOICE_WAVE_BAR_COUNT }, () => 0.08)
+    setVoiceWaveform(waveformRef.current)
+  }, [])
+
+  const finalizeRecording = useCallback(async (cancelled: boolean) => {
+    const sampleRate = inputSampleRateRef.current
+    const mergedSamples = mergeFloat32Chunks(pcmChunksRef.current)
+    pcmChunksRef.current = []
+    await teardownRecordingGraph()
+
+    if (cancelled) {
+      cancelledRef.current = false
+      setVoiceState('idle')
+      return
+    }
+
+    if (mergedSamples.length === 0) {
+      setVoiceState('idle')
+      return
+    }
+
+    setVoiceState('transcribing')
+    try {
+      const wavBytes = audioSamplesToWavBytes(mergedSamples, sampleRate)
+      const result = await window.clui.transcribeAudio({ wavBytes })
+      if (result.error) setVoiceError(result.error)
+      else if (result.transcript) setInput((prev) => (prev ? `${prev} ${result.transcript}` : result.transcript))
+    } catch (err: any) {
+      setVoiceError(`Voice failed: ${err.message}`)
+    } finally {
+      setVoiceState('idle')
+    }
+  }, [teardownRecordingGraph])
+
   const stopRecording = useCallback(() => {
     cancelledRef.current = false
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop()
-  }, [])
+    void finalizeRecording(false)
+  }, [finalizeRecording])
 
   const cancelRecording = useCallback(() => {
     cancelledRef.current = true
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop()
-  }, [])
+    void finalizeRecording(true)
+  }, [finalizeRecording])
 
   const startRecording = useCallback(async () => {
     setVoiceError(null)
-    chunksRef.current = []
+    waveformRef.current = Array.from({ length: VOICE_WAVE_BAR_COUNT }, () => 0.08)
+    setVoiceWaveform(waveformRef.current)
+    pcmChunksRef.current = []
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -345,27 +409,42 @@ export function InputBar() {
       setVoiceError('Microphone permission denied.')
       return
     }
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
-    const recorder = new MediaRecorder(stream, { mimeType })
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-    recorder.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop())
-      if (cancelledRef.current) { cancelledRef.current = false; setVoiceState('idle'); return }
-      if (chunksRef.current.length === 0) { setVoiceState('idle'); return }
-      setVoiceState('transcribing')
-      try {
-        const blob = new Blob(chunksRef.current, { type: mimeType })
-        const wavBase64 = await blobToWavBase64(blob)
-        const result = await window.clui.transcribeAudio(wavBase64)
-        if (result.error) setVoiceError(result.error)
-        else if (result.transcript) setInput((prev) => (prev ? `${prev} ${result.transcript}` : result.transcript!))
-      } catch (err: any) { setVoiceError(`Voice failed: ${err.message}`) }
-      finally { setVoiceState('idle') }
+
+    try {
+      const audioContext = new AudioContext({ sampleRate: 16000 })
+      await audioContext.resume()
+
+      const source = audioContext.createMediaStreamSource(stream)
+      const processor = audioContext.createScriptProcessor(1024, Math.max(1, source.channelCount || 1), 1)
+      const sink = audioContext.createGain()
+      sink.gain.value = 0
+
+      processor.onaudioprocess = (event) => {
+        const mono = mixInputBufferToMono(event.inputBuffer)
+        if (mono.length > 0) pcmChunksRef.current.push(mono)
+        const nextWaveform = pushWaveformLevel(waveformRef.current, getWaveformLevel(mono))
+        waveformRef.current = nextWaveform
+        setVoiceWaveform(nextWaveform)
+      }
+
+      source.connect(processor)
+      processor.connect(sink)
+      sink.connect(audioContext.destination)
+
+      audioStreamRef.current = stream
+      audioContextRef.current = audioContext
+      audioSourceRef.current = source
+      audioProcessorRef.current = processor
+      audioSinkRef.current = sink
+      inputSampleRateRef.current = audioContext.sampleRate
+    } catch (err: any) {
+      stream.getTracks().forEach((track) => track.stop())
+      setVoiceError(`Recording failed: ${err.message}`)
+      setVoiceState('idle')
+      return
     }
-    recorder.onerror = () => { stream.getTracks().forEach((t) => t.stop()); setVoiceError('Recording failed.'); setVoiceState('idle') }
-    mediaRecorderRef.current = recorder
+
     setVoiceState('recording')
-    recorder.start()
   }, [])
 
   const handleVoiceToggle = useCallback(() => {
@@ -399,7 +478,24 @@ export function InputBar() {
 
       {/* Single-line: inline controls. Multi-line: controls in bottom row */}
       <div className="w-full" style={{ minHeight: 50 }}>
-        {isMultiLine ? (
+        {voiceState === 'recording' ? (
+          <div className="flex items-center w-full" style={{ minHeight: 50 }}>
+            <div className="flex-1 flex items-center overflow-hidden" style={{ minHeight: 20 }}>
+              <VoiceWaveform bars={voiceWaveform} colors={colors} />
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              <VoiceButtons
+                voiceState={voiceState}
+                isConnecting={isConnecting}
+                colors={colors}
+                onToggle={handleVoiceToggle}
+                onCancel={cancelRecording}
+                onStop={stopRecording}
+              />
+            </div>
+          </div>
+        ) : isMultiLine ? (
           <div className="w-full">
             <textarea
               ref={textareaRef}
@@ -410,13 +506,11 @@ export function InputBar() {
               placeholder={
                 isConnecting
                   ? 'Initializing...'
-                  : voiceState === 'recording'
-                    ? 'Recording... ✓ to confirm, ✕ to cancel'
-                    : voiceState === 'transcribing'
+                  : voiceState === 'transcribing'
                       ? 'Transcribing...'
                       : isBusy
                         ? 'Type to queue a message...'
-                        : 'Ask Claude Code anything...'
+                        : 'Ask anything...'
               }
               rows={1}
               className="w-full bg-transparent resize-none"
@@ -449,6 +543,12 @@ export function InputBar() {
                       className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
                       style={{ background: colors.sendBg, color: colors.textOnAccent }}
                       title={isBusy ? 'Queue message' : 'Send (Enter)'}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = colors.sendHover
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = colors.sendBg
+                      }}
                     >
                       <ArrowUp size={16} weight="bold" />
                     </button>
@@ -468,13 +568,11 @@ export function InputBar() {
               placeholder={
                 isConnecting
                   ? 'Initializing...'
-                  : voiceState === 'recording'
-                    ? 'Recording... ✓ to confirm, ✕ to cancel'
-                    : voiceState === 'transcribing'
+                  : voiceState === 'transcribing'
                       ? 'Transcribing...'
                       : isBusy
                         ? 'Type to queue a message...'
-                        : 'Ask Claude Code anything...'
+                        : 'Ask anything...'
               }
               rows={1}
               className="flex-1 bg-transparent resize-none"
@@ -507,6 +605,12 @@ export function InputBar() {
                       className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
                       style={{ background: colors.sendBg, color: colors.textOnAccent }}
                       title={isBusy ? 'Queue message' : 'Send (Enter)'}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = colors.sendHover
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = colors.sendBg
+                      }}
                     >
                       <ArrowUp size={16} weight="bold" />
                     </button>
@@ -599,36 +703,108 @@ function VoiceButtons({ voiceState, isConnecting, colors, onToggle, onCancel, on
   )
 }
 
-// ─── Audio conversion: WebM blob → WAV base64 ───
+function VoiceWaveform({ bars, colors }: {
+  bars: number[]
+  colors: ReturnType<typeof useColors>
+}) {
+  return (
+    <motion.div
+      key="voice-waveform"
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 4 }}
+      transition={{ duration: 0.16 }}
+      className="flex items-center gap-[3px] w-full h-9 px-2"
+      style={{ minWidth: 0 }}
+    >
+      {bars.map((bar, index) => {
+        const height = Math.max(3, Math.round(4 + bar * 22))
+        const alpha = 0.22 + Math.min(0.78, bar * 1.2)
+        return (
+          <motion.span
+            key={`${index}-${height}`}
+            animate={{ height, opacity: alpha }}
+            transition={{ duration: 0.11, ease: [0.22, 1, 0.36, 1] }}
+            className="block rounded-full flex-1"
+            style={{
+              minWidth: 2,
+              maxWidth: 4,
+              background: colors.textPrimary,
+              transformOrigin: 'center',
+            }}
+          />
+        )
+      })}
+    </motion.div>
+  )
+}
 
-async function blobToWavBase64(blob: Blob): Promise<string> {
-  const arrayBuffer = await blob.arrayBuffer()
-  const audioCtx = new AudioContext()
-  const decoded = await audioCtx.decodeAudioData(arrayBuffer)
-  audioCtx.close()
-  const mono = mixToMono(decoded)
+// ─── Audio conversion: live PCM capture → WAV bytes ───
+
+function audioSamplesToWavBytes(samples: Float32Array, sampleRate: number): Uint8Array {
+  const mono = samples
   const inputRms = rmsLevel(mono)
   if (inputRms < 0.003) {
     throw new Error('No voice detected. Check microphone permission and speak closer to the mic.')
   }
-  const resampled = resampleLinear(mono, decoded.sampleRate, 16000)
+  const resampled = resampleLinear(mono, sampleRate, 16000)
   const normalized = normalizePcm(resampled)
   const wavBuffer = encodeWav(normalized, 16000)
-  return bufferToBase64(wavBuffer)
+  return new Uint8Array(wavBuffer)
 }
 
-function mixToMono(buffer: AudioBuffer): Float32Array {
+function mergeFloat32Chunks(chunks: Float32Array[]): Float32Array {
+  let totalLength = 0
+  for (const chunk of chunks) totalLength += chunk.length
+  const merged = new Float32Array(totalLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    merged.set(chunk, offset)
+    offset += chunk.length
+  }
+  return merged
+}
+
+function mixInputBufferToMono(buffer: AudioBuffer): Float32Array {
   const { numberOfChannels, length } = buffer
-  if (numberOfChannels <= 1) return buffer.getChannelData(0)
+  if (numberOfChannels <= 1) return new Float32Array(buffer.getChannelData(0))
 
   const mono = new Float32Array(length)
-  for (let ch = 0; ch < numberOfChannels; ch++) {
-    const channel = buffer.getChannelData(ch)
-    for (let i = 0; i < length; i++) mono[i] += channel[i]
+  for (let channelIndex = 0; channelIndex < numberOfChannels; channelIndex++) {
+    const channel = buffer.getChannelData(channelIndex)
+    for (let sampleIndex = 0; sampleIndex < length; sampleIndex++) {
+      mono[sampleIndex] += channel[sampleIndex]
+    }
   }
   const inv = 1 / numberOfChannels
-  for (let i = 0; i < length; i++) mono[i] *= inv
+  for (let sampleIndex = 0; sampleIndex < length; sampleIndex++) mono[sampleIndex] *= inv
   return mono
+}
+
+function getWaveformLevel(samples: Float32Array): number {
+  if (samples.length === 0) return 0.08
+
+  let peak = 0
+  let sumSq = 0
+  for (let i = 0; i < samples.length; i++) {
+    const value = samples[i]
+    const abs = Math.abs(value)
+    if (abs > peak) peak = abs
+    sumSq += value * value
+  }
+
+  const rms = Math.sqrt(sumSq / samples.length)
+  const weighted = Math.max(rms * 5.5, peak * 2.4)
+  return Math.max(0.08, Math.min(1, weighted))
+}
+
+function pushWaveformLevel(previous: number[], nextLevel: number): number[] {
+  const decayedPrevious = previous.map((value, index) => {
+    const decay = index > previous.length - 6 ? 0.92 : 0.86
+    return Math.max(0.08, value * decay)
+  })
+
+  return [...decayedPrevious.slice(1), nextLevel]
 }
 
 function resampleLinear(input: Float32Array, inRate: number, outRate: number): Float32Array {
@@ -695,11 +871,4 @@ function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
 
 function writeString(view: DataView, offset: number, str: string) {
   for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
-}
-
-function bufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-  return btoa(binary)
 }

@@ -1,6 +1,6 @@
-# Clui CC — Command Line User Interface for Claude Code
+# CLUI — Command Line User Interface for Codex
 
-A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) on macOS. Clui CC wraps the Claude Code CLI in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
+A lightweight, transparent desktop overlay for Codex on macOS. CLUI wraps the Codex CLI/app-server in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
 
 ## Demo
 
@@ -13,18 +13,18 @@ A lightweight, transparent desktop overlay for [Claude Code](https://docs.anthro
 - **Floating overlay** — transparent, click-through window that stays on top. Toggle with `⌥ + Space` (fallback: `Cmd+Shift+K`).
 - **Multi-tab sessions** — each tab spawns its own `claude -p` process with independent session state.
 - **Permission approval UI** — intercepts tool calls via PreToolUse HTTP hooks so you can review and approve/deny from the UI.
-- **Conversation history** — browse and resume past Claude Code sessions.
-- **Skills marketplace** — install plugins from Anthropic's GitHub repos without leaving Clui CC.
+- **Conversation history** — browse and resume past Codex threads.
+- **Skills marketplace** — browse Codex-native skills, plugins, and apps without leaving CLUI.
 - **Voice input** — local speech-to-text via Whisper (required, installed automatically).
 - **File & screenshot attachments** — paste images or attach files directly.
 - **Dual theme** — dark/light mode with system-follow option.
 
-## Why Clui CC
+## Why CLUI
 
-- **Claude Code, but visual** — keep CLI power while getting a fast desktop UX for approvals, history, and multitasking.
+- **Codex, but visual** — keep CLI power while getting a fast desktop UX for approvals, history, and multitasking.
 - **Human-in-the-loop safety** — tool calls are reviewed and approved in-app before execution.
-- **Session-native workflow** — each tab runs an independent Claude session you can resume later.
-- **Local-first** — everything runs through your local Claude CLI. No telemetry, no cloud dependency.
+- **Thread-native workflow** — each tab runs an independent Codex thread you can resume later.
+- **Local-first** — everything runs through your local Codex CLI. No telemetry, no cloud dependency.
 
 ## How It Works
 
@@ -37,24 +37,24 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full deep-dive.
 
 ## Install App (Recommended)
 
-The fastest way to get Clui CC running as a regular Mac app. This installs dependencies, voice support (Whisper), builds the app, copies it to `/Applications`, and launches it.
+The fastest way to get CLUI running as a regular Mac app. This installs dependencies, voice support (Whisper), builds the app, copies it to `/Applications`, and launches it.
 
 **1) Clone the repo**
 
 ```bash
-git clone https://github.com/lcoutodemos/clui-cc.git
+git clone https://github.com/justjxke/clui.git
 ```
 
 **2) Double-click `install-app.command`**
 
-Open the `clui-cc` folder in Finder and double-click `install-app.command`.
+Open the `clui` folder in Finder and double-click `install-app.command`.
 
 > **First launch:** macOS may block the app because it's unsigned. Go to **System Settings → Privacy & Security → Open Anyway**. You only need to do this once.
 > **Folder cleanup:** the installer removes temporary `dist/` and `release/` folders after a successful install to keep the repo tidy.
 
-<p align="center"><img src="docs/shortcut.png" width="520" alt="Press Option + Space to show or hide Clui CC" /></p>
+<p align="center"><img src="docs/shortcut.png" width="520" alt="Press Option + Space to show or hide CLUI" /></p>
 
-After the initial install, just open **Clui CC** from your Applications folder or Spotlight.
+After the initial install, just open **CLUI** from your Applications folder or Spotlight.
 
 <details>
 <summary><strong>Terminal / Developer Commands</strong></summary>
@@ -64,11 +64,11 @@ Only `install-app.command` is kept at root intentionally for non-technical users
 ### Quick Start (Terminal)
 
 ```bash
-git clone https://github.com/lcoutodemos/clui-cc.git
+git clone https://github.com/justjxke/clui.git
 ```
 
 ```bash
-cd clui-cc
+cd clui
 ```
 
 ```bash
@@ -105,7 +105,7 @@ Renderer changes update instantly. Main-process changes require restarting `npm 
 |---------|---------|
 | `./commands/setup.command` | Environment check + install dependencies |
 | `./commands/start.command` | Build and launch from source |
-| `./commands/stop.command` | Stop all Clui CC processes |
+| `./commands/stop.command` | Stop all CLUI processes |
 | `npm run build` | Production build (no packaging) |
 | `npm run dist` | Package as macOS `.app` into `release/` |
 | `npm run doctor` | Run environment diagnostic |
@@ -141,13 +141,13 @@ node --version
 python3 -m pip install --upgrade pip setuptools
 ```
 
-**Step 4.** Install Claude Code CLI:
+**Step 4.** Install Codex CLI:
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
-**Step 5.** Authenticate Claude Code (follow the prompts that appear):
+**Step 5.** Authenticate Codex (follow the prompts that appear):
 
 ```bash
 claude
@@ -162,7 +162,7 @@ brew install whisperkit-cli
 brew install whisper-cpp
 ```
 
-> **No API keys or `.env` file required.** Clui CC uses your existing Claude Code CLI authentication (Pro/Team/Enterprise subscription).
+> **No API keys or `.env` file required.** CLUI uses your existing Codex CLI authentication.
 
 </details>
 
@@ -199,14 +199,14 @@ src/
 
 ### Network Behavior
 
-Clui CC operates almost entirely offline. The only outbound network calls are:
+CLUI operates almost entirely offline. The only outbound network calls are:
 
 | Endpoint | Purpose | Required |
 |----------|---------|----------|
 | `raw.githubusercontent.com/anthropics/*` | Marketplace catalog (cached 5 min) | No — graceful fallback |
 | `api.github.com/repos/anthropics/*/tarball/*` | Skill auto-install on startup | No — skipped on failure |
 
-No telemetry, analytics, or auto-update mechanisms. All core Claude Code interaction goes through the local CLI.
+No telemetry, analytics, or auto-update mechanisms. All core Codex interaction goes through the local CLI.
 
 </details>
 
@@ -228,12 +228,12 @@ npm run doctor
 | Node.js | 20.x LTS, 22.x |
 | Python | 3.12 (with setuptools installed) |
 | Electron | 33.x |
-| Claude Code CLI | 2.1.71 |
+| Codex CLI | 2.1.71 |
 
 ## Known Limitations
 
 - **macOS only** — transparent overlay, tray icon, and node-pty are macOS-specific. Windows/Linux support is not currently implemented.
-- **Requires Claude Code CLI** — Clui CC is a UI layer, not a standalone AI client. You need an authenticated `claude` CLI.
+- **Requires Codex CLI** — CLUI is a UI layer, not a standalone AI client. You need an authenticated `codex` CLI.
 - **Permission mode** — uses `--permission-mode default`. The PTY interactive transport is legacy and disabled by default.
 
 ## License
