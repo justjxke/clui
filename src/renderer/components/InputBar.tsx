@@ -751,7 +751,6 @@ function VoiceWaveform({ bars, colors }: {
             className="block rounded-full flex-1"
             style={{
               minWidth: 2,
-              maxWidth: 4,
               background: colors.textPrimary,
               transformOrigin: 'center',
             }}
