@@ -1,15 +1,12 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, shell, systemPreferences } from 'electron'
 import { join } from 'path'
-import { existsSync, readdirSync, statSync, createReadStream } from 'fs'
-import { createInterface } from 'readline'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
-import { ControlPlane } from './claude/control-plane'
+import { ControlPlane } from './codex/control-plane'
 import { ensureSkills, type SkillStatus } from './skills/installer'
-import { fetchCatalog, listInstalled, installPlugin, uninstallPlugin } from './marketplace/catalog'
 import { log as _log, LOG_FILE, flushLogs } from './logger'
-import { getCliEnv } from './cli-env'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, EnrichedError } from '../shared/types'
+import type { RunOptions, NormalizedEvent, EnrichedError, AudioTranscriptionInput } from '../shared/types'
 
 const DEBUG_MODE = process.env.CLUI_DEBUG === '1'
 const SPACES_DEBUG = DEBUG_MODE || process.env.CLUI_SPACES_DEBUG === '1'
@@ -22,17 +19,123 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let screenshotCounter = 0
 let toggleSequence = 0
+let currentHotkey = 'Alt+Space'
+let currentPermissionMode: 'ask' | 'auto' = 'ask'
+let currentLaunchOnStartup = false
+let shouldShowWindowOnReady = true
 
-// Feature flag: enable PTY interactive permissions transport
-const INTERACTIVE_PTY = process.env.CLUI_INTERACTIVE_PERMISSIONS_PTY === '1'
-
-const controlPlane = new ControlPlane(INTERACTIVE_PTY)
+const controlPlane = new ControlPlane()
 
 // Keep native width fixed to avoid renderer animation vs setBounds race.
 // The UI itself still launches in compact mode; extra width is transparent/click-through.
 const BAR_WIDTH = 1040
 const PILL_HEIGHT = 720  // Fixed native window height — extra room for expanded UI + shadow buffers
 const PILL_BOTTOM_MARGIN = 24
+const HOTKEY_SETTINGS_FILE = 'settings.json'
+const DEFAULT_HOTKEY = 'Alt+Space'
+const DEFAULT_PERMISSION_MODE: 'ask' | 'auto' = 'ask'
+const DEFAULT_LAUNCH_ON_STARTUP = false
+
+type AppSettings = {
+  hotkey?: string
+  permissionMode?: 'ask' | 'auto'
+  launchOnStartup?: boolean
+}
+
+function getSettingsPath(): string {
+  return join(app.getPath('userData'), HOTKEY_SETTINGS_FILE)
+}
+
+function readSettings(): AppSettings {
+  try {
+    const filePath = getSettingsPath()
+    if (!existsSync(filePath)) return {}
+    const parsed = JSON.parse(readFileSync(filePath, 'utf8'))
+    if (parsed && typeof parsed === 'object') return parsed as AppSettings
+  } catch (error) {
+    log(`Failed to load settings: ${error}`)
+  }
+  return {}
+}
+
+function loadHotkeySetting(): string {
+  const settings = readSettings()
+  return typeof settings.hotkey === 'string' && settings.hotkey.trim()
+    ? settings.hotkey.trim()
+    : DEFAULT_HOTKEY
+}
+
+function loadPermissionModeSetting(): 'ask' | 'auto' {
+  const settings = readSettings()
+  return settings.permissionMode === 'auto' ? 'auto' : DEFAULT_PERMISSION_MODE
+}
+
+function loadLaunchOnStartupSetting(): boolean {
+  const settings = readSettings()
+  if (typeof settings.launchOnStartup === 'boolean') {
+    return settings.launchOnStartup
+  }
+  if (process.platform === 'darwin') {
+    return app.getLoginItemSettings().openAtLogin
+  }
+  return DEFAULT_LAUNCH_ON_STARTUP
+}
+
+function writeSettings(patch: AppSettings): void {
+  try {
+    const filePath = getSettingsPath()
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    const current = readSettings()
+    writeFileSync(filePath, JSON.stringify({ ...current, ...patch }, null, 2))
+  } catch (error) {
+    log(`Failed to save settings: ${error}`)
+  }
+}
+
+function applyLaunchOnStartup(enabled: boolean): { ok: boolean; error?: string } {
+  try {
+    if (process.platform === 'darwin') {
+      app.setLoginItemSettings({
+        openAtLogin: enabled,
+        openAsHidden: enabled,
+      })
+    }
+    currentLaunchOnStartup = enabled
+    writeSettings({ launchOnStartup: enabled })
+    log(`Configured launch on startup: ${enabled}`)
+    return { ok: true }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`Failed to configure launch on startup: ${message}`)
+    return { ok: false, error: 'Unable to update startup launch setting.' }
+  }
+}
+
+function registerToggleShortcut(accelerator: string): { ok: boolean; error?: string } {
+  try {
+    globalShortcut.unregister(currentHotkey)
+  } catch {}
+
+  const registered = globalShortcut.register(accelerator, () => toggleWindow(`shortcut ${accelerator}`))
+  if (!registered) {
+    try {
+      globalShortcut.register(currentHotkey, () => toggleWindow(`shortcut ${currentHotkey}`))
+    } catch {}
+    return { ok: false, error: `Unable to register "${accelerator}". It may already be in use.` }
+  }
+
+  currentHotkey = accelerator
+  writeSettings({ hotkey: accelerator })
+  log(`Registered toggle shortcut: ${accelerator}`)
+  return { ok: true }
+}
+
+function revealWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.show()
+  mainWindow.setIgnoreMouseEvents(true, { forward: true })
+  mainWindow.webContents.focus()
+}
 
 // ─── Broadcast to renderer ───
 
@@ -131,12 +234,14 @@ function createWindow(): void {
   mainWindow.setAlwaysOnTop(true, 'screen-saver')
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
-    // Enable OS-level click-through for transparent regions.
-    // { forward: true } ensures mousemove events still reach the renderer
-    // so it can toggle click-through off when cursor enters interactive UI.
-    mainWindow?.setIgnoreMouseEvents(true, { forward: true })
-    if (process.env.ELECTRON_RENDERER_URL) {
+    if (shouldShowWindowOnReady) {
+      revealWindow()
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
+      // Keep the overlay alive but hidden on login-item launch so it is ready
+      // when the user summons it with the hotkey.
+      mainWindow.setIgnoreMouseEvents(true, { forward: true })
+    }
+    if (process.env.ELECTRON_RENDERER_URL && shouldShowWindowOnReady) {
       mainWindow?.webContents.openDevTools({ mode: 'detach' })
     }
   })
@@ -184,8 +289,7 @@ function showWindow(source = 'unknown'): void {
   }
   // As an accessory app (app.dock.hide), show() + focus gives keyboard
   // without deactivating the active app — hover preserved everywhere.
-  mainWindow.show()
-  mainWindow.webContents.focus()
+  revealWindow()
   broadcast(IPC.WINDOW_SHOWN)
   if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
 }
@@ -199,8 +303,13 @@ function toggleWindow(source = 'unknown'): void {
   }
 
   if (mainWindow.isVisible()) {
-    mainWindow.hide()
-    if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
+    broadcast(IPC.WINDOW_HIDE_REQUESTED)
+    setTimeout(() => {
+      if (!mainWindow?.isDestroyed()) {
+        mainWindow.hide()
+        if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
+      }
+    }, 150)
   } else {
     showWindow(source)
   }
@@ -242,27 +351,8 @@ ipcMain.on(IPC.SET_IGNORE_MOUSE_EVENTS, (event, ignore: boolean, options?: { for
 // ─── IPC Handlers (typed, strict) ───
 
 ipcMain.handle(IPC.START, async () => {
-  log('IPC START — fetching static CLI info')
-  const { execSync } = require('child_process')
-
-  let version = 'unknown'
-  try {
-    version = execSync('claude -v', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
-  } catch {}
-
-  let auth: { email?: string; subscriptionType?: string; authMethod?: string } = {}
-  try {
-    const raw = execSync('claude auth status', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
-    auth = JSON.parse(raw)
-  } catch {}
-
-  let mcpServers: string[] = []
-  try {
-    const raw = execSync('claude mcp list', { encoding: 'utf-8', timeout: 5000, env: getCliEnv() }).trim()
-    if (raw) mcpServers = raw.split('\n').filter(Boolean)
-  } catch {}
-
-  return { version, auth, mcpServers, projectPath: process.cwd(), homePath: require('os').homedir() }
+  log('IPC START — fetching Codex app-server info')
+  return controlPlane.getStartupInfo()
 })
 
 ipcMain.handle(IPC.CREATE_TAB, () => {
@@ -338,7 +428,14 @@ ipcMain.on(IPC.SET_PERMISSION_MODE, (_event, mode: string) => {
     return
   }
   log(`IPC SET_PERMISSION_MODE: ${mode}`)
+  currentPermissionMode = mode
+  writeSettings({ permissionMode: mode })
   controlPlane.setPermissionMode(mode)
+})
+
+ipcMain.handle(IPC.SET_LAUNCH_ON_STARTUP, (_event, enabled: boolean) => {
+  log(`IPC SET_LAUNCH_ON_STARTUP: ${enabled}`)
+  return applyLaunchOnStartup(Boolean(enabled))
 })
 
 ipcMain.handle(IPC.RESPOND_PERMISSION, (_event, { tabId, questionId, optionId }: { tabId: string; questionId: string; optionId: string }) => {
@@ -348,158 +445,13 @@ ipcMain.handle(IPC.RESPOND_PERMISSION, (_event, { tabId, questionId, optionId }:
 
 ipcMain.handle(IPC.LIST_SESSIONS, async (_e, projectPath?: string) => {
   log(`IPC LIST_SESSIONS ${projectPath ? `(path=${projectPath})` : ''}`)
-  try {
-    const cwd = projectPath || process.cwd()
-    // Validate projectPath — reject null bytes, newlines, non-absolute paths
-    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
-      log(`LIST_SESSIONS: rejected invalid projectPath: ${cwd}`)
-      return []
-    }
-    // Claude stores project sessions at ~/.claude/projects/<encoded-path>/
-    // Path encoding: replace all '/' with '-' (leading '/' becomes leading '-')
-    const encodedPath = cwd.replace(/\//g, '-')
-    const sessionsDir = join(homedir(), '.claude', 'projects', encodedPath)
-    if (!existsSync(sessionsDir)) {
-      log(`LIST_SESSIONS: directory not found: ${sessionsDir}`)
-      return []
-    }
-    const files = readdirSync(sessionsDir).filter((f: string) => f.endsWith('.jsonl'))
-
-    const sessions: Array<{ sessionId: string; slug: string | null; firstMessage: string | null; lastTimestamp: string; size: number }> = []
-
-    // UUID v4 regex — only consider files named as valid UUIDs
-    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-    for (const file of files) {
-      // The filename (without .jsonl) IS the canonical resume ID for `claude --resume`
-      const fileSessionId = file.replace(/\.jsonl$/, '')
-      if (!UUID_RE.test(fileSessionId)) continue // skip non-UUID files
-
-      const filePath = join(sessionsDir, file)
-      const stat = statSync(filePath)
-      if (stat.size < 100) continue // skip trivially small files
-
-      // Read lines to extract metadata and validate transcript schema
-      const meta: { validated: boolean; slug: string | null; firstMessage: string | null; lastTimestamp: string | null } = {
-        validated: false, slug: null, firstMessage: null, lastTimestamp: null,
-      }
-
-      await new Promise<void>((resolve) => {
-        const rl = createInterface({ input: createReadStream(filePath) })
-        rl.on('line', (line: string) => {
-          try {
-            const obj = JSON.parse(line)
-            // Validate: must have expected Claude transcript fields
-            if (!meta.validated && obj.type && obj.uuid && obj.timestamp) {
-              meta.validated = true
-            }
-            if (obj.slug && !meta.slug) meta.slug = obj.slug
-            if (obj.timestamp) meta.lastTimestamp = obj.timestamp
-            if (obj.type === 'user' && !meta.firstMessage) {
-              const content = obj.message?.content
-              if (typeof content === 'string') {
-                meta.firstMessage = content.substring(0, 100)
-              } else if (Array.isArray(content)) {
-                const textPart = content.find((p: any) => p.type === 'text')
-                meta.firstMessage = textPart?.text?.substring(0, 100) || null
-              }
-            }
-          } catch {}
-          // Read all lines to get the last timestamp
-        })
-        rl.on('close', () => resolve())
-      })
-
-      if (meta.validated) {
-        sessions.push({
-          sessionId: fileSessionId,
-          slug: meta.slug,
-          firstMessage: meta.firstMessage,
-          lastTimestamp: meta.lastTimestamp || stat.mtime.toISOString(),
-          size: stat.size,
-        })
-      }
-    }
-
-    // Sort by last timestamp, most recent first
-    sessions.sort((a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime())
-    return sessions.slice(0, 20) // Return top 20
-  } catch (err) {
-    log(`LIST_SESSIONS error: ${err}`)
-    return []
-  }
+  return controlPlane.listSessions(projectPath)
 })
 
-// Load conversation history from a session's JSONL file
 ipcMain.handle(IPC.LOAD_SESSION, async (_e, arg: { sessionId: string; projectPath?: string } | string) => {
   const sessionId = typeof arg === 'string' ? arg : arg.sessionId
-  const projectPath = typeof arg === 'string' ? undefined : arg.projectPath
-  log(`IPC LOAD_SESSION ${sessionId}${projectPath ? ` (path=${projectPath})` : ''}`)
-
-  // Validate sessionId — must be strict UUID to prevent path traversal via crafted filenames
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  if (!UUID_RE.test(sessionId)) {
-    log(`LOAD_SESSION: rejected invalid sessionId: ${sessionId}`)
-    return []
-  }
-
-  try {
-    const cwd = projectPath || process.cwd()
-    // Validate projectPath — reject null bytes, newlines, non-absolute paths
-    if (/[\0\r\n]/.test(cwd) || !cwd.startsWith('/')) {
-      log(`LOAD_SESSION: rejected invalid projectPath: ${cwd}`)
-      return []
-    }
-    const encodedPath = cwd.replace(/\//g, '-')
-    const filePath = join(homedir(), '.claude', 'projects', encodedPath, `${sessionId}.jsonl`)
-    if (!existsSync(filePath)) return []
-
-    const messages: Array<{ role: string; content: string; toolName?: string; timestamp: number }> = []
-    await new Promise<void>((resolve) => {
-      const rl = createInterface({ input: createReadStream(filePath) })
-      rl.on('line', (line: string) => {
-        try {
-          const obj = JSON.parse(line)
-          if (obj.type === 'user') {
-            const content = obj.message?.content
-            let text = ''
-            if (typeof content === 'string') {
-              text = content
-            } else if (Array.isArray(content)) {
-              text = content
-                .filter((b: any) => b.type === 'text')
-                .map((b: any) => b.text)
-                .join('\n')
-            }
-            if (text) {
-              messages.push({ role: 'user', content: text, timestamp: new Date(obj.timestamp).getTime() })
-            }
-          } else if (obj.type === 'assistant') {
-            const content = obj.message?.content
-            if (Array.isArray(content)) {
-              for (const block of content) {
-                if (block.type === 'text' && block.text) {
-                  messages.push({ role: 'assistant', content: block.text, timestamp: new Date(obj.timestamp).getTime() })
-                } else if (block.type === 'tool_use' && block.name) {
-                  messages.push({
-                    role: 'tool',
-                    content: '',
-                    toolName: block.name,
-                    timestamp: new Date(obj.timestamp).getTime(),
-                  })
-                }
-              }
-            }
-          }
-        } catch {}
-      })
-      rl.on('close', () => resolve())
-    })
-    return messages
-  } catch (err) {
-    log(`LOAD_SESSION error: ${err}`)
-    return []
-  }
+  log(`IPC LOAD_SESSION ${sessionId}`)
+  return controlPlane.loadSession(sessionId)
 })
 
 ipcMain.handle(IPC.SELECT_DIRECTORY, async () => {
@@ -622,8 +574,7 @@ ipcMain.handle(IPC.TAKE_SCREENSHOT, async () => {
     return null
   } finally {
     if (mainWindow) {
-      mainWindow.show()
-      mainWindow.webContents.focus()
+      revealWindow()
     }
     broadcast(IPC.WINDOW_SHOWN)
     if (SPACES_DEBUG) {
@@ -665,7 +616,7 @@ ipcMain.handle(IPC.PASTE_IMAGE, async (_event, dataUrl: string) => {
   }
 })
 
-ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
+ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, payload: AudioTranscriptionInput) => {
   const { writeFileSync, existsSync, unlinkSync, readFileSync } = require('fs')
   const { execFile } = require('child_process')
   const { join, basename } = require('path')
@@ -690,9 +641,16 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       })
 
     let t0 = Date.now()
-    const buf = Buffer.from(audioBase64, 'base64')
+    const wavBytes = payload?.wavBytes
+    const buf = wavBytes instanceof Uint8Array ? Buffer.from(wavBytes) : Buffer.alloc(0)
+    if (buf.length === 0) {
+      return {
+        error: 'No audio data received for transcription.',
+        transcript: null,
+      }
+    }
     writeFileSync(tmpWav, buf)
-    mark('decode+write_wav', t0)
+    mark('write_wav', t0)
 
     // Find whisper backend in priority order: whisperkit-cli (Apple Silicon CoreML) → whisper-cli (whisper-cpp) → whisper (python)
     t0 = Date.now()
@@ -746,7 +704,7 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       t0 = Date.now()
       output = await runExecFile(
         whisperBin,
-        ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--without-timestamps', '--skip-special-tokens', '--report', '--report-path', reportDir],
+        ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--use-prefill-cache', '--without-timestamps', '--skip-special-tokens', '--report', '--report-path', reportDir],
         60000
       )
       mark('whisperkit_transcribe_report', t0)
@@ -778,7 +736,7 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
         t0 = Date.now()
         output = await runExecFile(
           whisperBin,
-          ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--without-timestamps', '--skip-special-tokens'],
+          ['transcribe', '--audio-path', tmpWav, '--model', 'tiny', '--use-prefill-cache', '--without-timestamps', '--skip-special-tokens'],
           60000
         )
         mark('whisperkit_transcribe_stdout_rerun', t0)
@@ -787,14 +745,14 @@ ipcMain.handle(IPC.TRANSCRIBE_AUDIO, async (_event, audioBase64: string) => {
       // whisper-cpp: whisper-cli -m model -f file --no-timestamps
       // Find model file — prefer multilingual (auto-detect language) over .en (English-only)
       const modelCandidates = [
-        join(homedir(), '.local/share/whisper/ggml-base.bin'),
         join(homedir(), '.local/share/whisper/ggml-tiny.bin'),
-        '/opt/homebrew/share/whisper-cpp/models/ggml-base.bin',
+        join(homedir(), '.local/share/whisper/ggml-base.bin'),
         '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.bin',
-        join(homedir(), '.local/share/whisper/ggml-base.en.bin'),
+        '/opt/homebrew/share/whisper-cpp/models/ggml-base.bin',
         join(homedir(), '.local/share/whisper/ggml-tiny.en.bin'),
-        '/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin',
+        join(homedir(), '.local/share/whisper/ggml-base.en.bin'),
         '/opt/homebrew/share/whisper-cpp/models/ggml-tiny.en.bin',
+        '/opt/homebrew/share/whisper-cpp/models/ggml-base.en.bin',
       ]
 
       let modelPath = ''
@@ -892,15 +850,13 @@ ipcMain.handle(IPC.GET_DIAGNOSTICS, () => {
     electronVersion: process.versions.electron,
     nodeVersion: process.versions.node,
     appVersion: app.getVersion(),
-    transport: INTERACTIVE_PTY ? 'pty' : 'stream-json',
+    transport: 'codex-app-server',
   }
 })
 
 ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?: string | null; projectPath?: string }) => {
   const { execFile } = require('child_process')
-  const claudeBin = 'claude'
-
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const codexBin = 'codex'
 
   // Support both old (string) and new ({ sessionId, projectPath }) calling convention
   let sessionId: string | null = null
@@ -910,12 +866,6 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
   } else if (arg && typeof arg === 'object') {
     sessionId = arg.sessionId ?? null
     projectPath = arg.projectPath && arg.projectPath !== '~' ? arg.projectPath : process.cwd()
-  }
-
-  // Validate sessionId — must be a strict UUID to prevent injection into the shell command
-  if (sessionId && !UUID_RE.test(sessionId)) {
-    log(`OPEN_IN_TERMINAL: rejected invalid sessionId: ${sessionId}`)
-    return false
   }
 
   // Sanitize projectPath — reject null bytes, newlines, and non-absolute paths
@@ -934,10 +884,9 @@ ipcMain.handle(IPC.OPEN_IN_TERMINAL, (_event, arg: string | null | { sessionId?:
 
   let cmd: string
   if (sessionId) {
-    // sessionId is UUID-validated above, safe to embed directly
-    cmd = `cd ${safeDir} && ${claudeBin} --resume ${sessionId}`
+    cmd = `cd ${safeDir} && ${codexBin} resume ${escapeAppleScript(sessionId)}`
   } else {
-    cmd = `cd ${safeDir} && ${claudeBin}`
+    cmd = `cd ${safeDir} && ${codexBin}`
   }
 
   const script = `tell application "Terminal"
@@ -961,28 +910,45 @@ end tell`
 
 ipcMain.handle(IPC.MARKETPLACE_FETCH, async (_event, { forceRefresh } = {}) => {
   log('IPC MARKETPLACE_FETCH')
-  return fetchCatalog(forceRefresh)
+  return controlPlane.fetchMarketplace(forceRefresh, process.cwd())
 })
 
 ipcMain.handle(IPC.MARKETPLACE_INSTALLED, async () => {
   log('IPC MARKETPLACE_INSTALLED')
-  return listInstalled()
+  return controlPlane.listInstalledPlugins()
 })
 
-ipcMain.handle(IPC.MARKETPLACE_INSTALL, async (_event, { repo, pluginName, marketplace, sourcePath, isSkillMd }: { repo: string; pluginName: string; marketplace: string; sourcePath?: string; isSkillMd?: boolean }) => {
-  log(`IPC MARKETPLACE_INSTALL: ${pluginName} from ${repo} (isSkillMd=${isSkillMd})`)
-  return installPlugin(repo, pluginName, marketplace, sourcePath, isSkillMd)
+ipcMain.handle(IPC.MARKETPLACE_INSTALL, async (_event, { pluginName }: { pluginName: string }) => {
+  log(`IPC MARKETPLACE_INSTALL: ${pluginName} (browse-only in Codex migration)`)
+  return { ok: false, error: 'Install actions are not enabled yet for Codex app-server marketplace items.' }
 })
 
 ipcMain.handle(IPC.MARKETPLACE_UNINSTALL, async (_event, { pluginName }: { pluginName: string }) => {
-  log(`IPC MARKETPLACE_UNINSTALL: ${pluginName}`)
-  return uninstallPlugin(pluginName)
+  log(`IPC MARKETPLACE_UNINSTALL: ${pluginName} (browse-only in Codex migration)`)
+  return { ok: false, error: 'Uninstall actions are not enabled yet for Codex app-server marketplace items.' }
 })
 
 // ─── Theme Detection ───
 
 ipcMain.handle(IPC.GET_THEME, () => {
   return { isDark: nativeTheme.shouldUseDarkColors }
+})
+
+ipcMain.handle(IPC.GET_HOTKEY, () => {
+  return { accelerator: currentHotkey }
+})
+
+ipcMain.handle(IPC.SET_HOTKEY, (_event, accelerator: string) => {
+  const trimmed = accelerator?.trim()
+  if (!trimmed) {
+    return { ok: false, accelerator: currentHotkey, error: 'Shortcut cannot be empty.' }
+  }
+  const result = registerToggleShortcut(trimmed)
+  return {
+    ok: result.ok,
+    accelerator: result.ok ? trimmed : currentHotkey,
+    error: result.error,
+  }
 })
 
 nativeTheme.on('updated', () => {
@@ -1026,6 +992,13 @@ app.whenReady().then(async () => {
   // Request permissions upfront so the user is never interrupted mid-session.
   await requestPermissions()
 
+  currentHotkey = loadHotkeySetting()
+  currentPermissionMode = loadPermissionModeSetting()
+  currentLaunchOnStartup = loadLaunchOnStartupSetting()
+  controlPlane.setPermissionMode(currentPermissionMode)
+  applyLaunchOnStartup(currentLaunchOnStartup)
+  shouldShowWindowOnReady = !(process.platform === 'darwin' && currentLaunchOnStartup && app.getLoginItemSettings().wasOpenedAtLogin)
+
   // Skill provisioning — non-blocking, streams status to renderer
   ensureSkills((status: SkillStatus) => {
     log(`Skill ${status.name}: ${status.state}${status.error ? ` — ${status.error}` : ''}`)
@@ -1060,24 +1033,22 @@ app.whenReady().then(async () => {
     })
   }
 
-
-  // Primary: Option+Space (2 keys, doesn't conflict with shell)
-  // Fallback: Cmd+Shift+K kept as secondary shortcut
-  const registered = globalShortcut.register('Alt+Space', () => toggleWindow('shortcut Alt+Space'))
-  if (!registered) {
-    log('Alt+Space shortcut registration failed — macOS input sources may claim it')
+  const shortcutResult = registerToggleShortcut(currentHotkey)
+  if (!shortcutResult.ok) {
+    log(shortcutResult.error || 'Failed to register configured shortcut; falling back to default')
+    currentHotkey = DEFAULT_HOTKEY
+    registerToggleShortcut(DEFAULT_HOTKEY)
   }
-  globalShortcut.register('CommandOrControl+Shift+K', () => toggleWindow('shortcut Cmd/Ctrl+Shift+K'))
 
   const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
   const trayIcon = nativeImage.createFromPath(trayIconPath)
   trayIcon.setTemplateImage(true)
   tray = new Tray(trayIcon)
-  tray.setToolTip('Clui CC — Claude Code UI')
+  tray.setToolTip('CLUI — Codex UI')
   tray.on('click', () => toggleWindow('tray click'))
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Show Clui CC', click: () => showWindow('tray menu') },
+      { label: 'Show CLUI', click: () => showWindow('tray menu') },
       { label: 'Quit', click: () => { app.quit() } },
     ])
   )

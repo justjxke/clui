@@ -5,9 +5,37 @@ import { useSessionStore } from '../stores/sessionStore'
 import { HistoryPicker } from './HistoryPicker'
 import { SettingsPopover } from './SettingsPopover'
 import { useColors } from '../theme'
-import type { TabStatus } from '../../shared/types'
+import type { Message, TabState, TabStatus } from '../../shared/types'
 
-function StatusDot({ status, hasUnread, hasPermission }: { status: TabStatus; hasUnread: boolean; hasPermission: boolean }) {
+function getLastConversationalMessage(messages: Message[]): Message | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message.role === 'user' || message.role === 'assistant') return message
+  }
+  return null
+}
+
+function isAwaitingUserResponse(tab: TabState): boolean {
+  if (!tab.hasUnread) return false
+  if (tab.status === 'connecting' || tab.status === 'running') return false
+  if (tab.permissionQueue.length > 0) return false
+  if (tab.queuedPrompts.length > 0) return false
+
+  const lastMessage = getLastConversationalMessage(tab.messages)
+  return lastMessage?.role === 'assistant'
+}
+
+function StatusDot({
+  status,
+  hasUnread,
+  hasPermission,
+  awaitingUserResponse,
+}: {
+  status: TabStatus
+  hasUnread: boolean
+  hasPermission: boolean
+  awaitingUserResponse: boolean
+}) {
   const colors = useColors()
   let bg: string = colors.statusIdle
   let pulse = false
@@ -21,6 +49,8 @@ function StatusDot({ status, hasUnread, hasPermission }: { status: TabStatus; ha
   } else if (status === 'connecting' || status === 'running') {
     bg = colors.statusRunning
     pulse = true
+  } else if (awaitingUserResponse) {
+    bg = colors.statusComplete
   } else if (hasUnread) {
     bg = colors.statusComplete
   }
@@ -68,6 +98,7 @@ export function TabStrip() {
           <AnimatePresence mode="popLayout">
             {tabs.map((tab) => {
               const isActive = tab.id === activeTabId
+              const awaitingUserResponse = isAwaitingUserResponse(tab)
               return (
                 <motion.div
                   key={tab.id}
@@ -80,15 +111,27 @@ export function TabStrip() {
                   className="group flex items-center gap-1.5 cursor-pointer select-none flex-shrink-0 max-w-[160px] transition-all duration-150"
                   style={{
                     background: isActive ? colors.tabActive : 'transparent',
-                    border: isActive ? `1px solid ${colors.tabActiveBorder}` : '1px solid transparent',
-                    borderRadius: 9999,
-                    padding: '4px 10px',
+                    border: `1px solid ${isActive ? colors.containerBorder : 'transparent'}`,
+                    boxShadow: isActive ? `0 4px 12px rgba(3, 8, 20, 0.14)` : 'none',
+                    borderRadius: 11,
+                    padding: '5px 10px',
                     fontSize: 12,
                     color: isActive ? colors.textPrimary : colors.textTertiary,
                     fontWeight: isActive ? 500 : 400,
                   }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) e.currentTarget.style.background = colors.tabHover
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) e.currentTarget.style.background = 'transparent'
+                  }}
                 >
-                  <StatusDot status={tab.status} hasUnread={tab.hasUnread} hasPermission={tab.permissionQueue.length > 0} />
+                  <StatusDot
+                    status={tab.status}
+                    hasUnread={tab.hasUnread}
+                    hasPermission={tab.permissionQueue.length > 0}
+                    awaitingUserResponse={awaitingUserResponse}
+                  />
                   <span className="truncate flex-1">{tab.title}</span>
                   {tabs.length > 1 && (
                     <button

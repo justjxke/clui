@@ -1,10 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC } from '../shared/types'
-import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachment, SessionMeta, CatalogPlugin, SessionLoadMessage } from '../shared/types'
+import type { RunOptions, NormalizedEvent, HealthReport, EnrichedError, Attachment, SessionMeta, CatalogPlugin, SessionLoadMessage, ModelOption, HotkeySetting, AudioTranscriptionInput } from '../shared/types'
 
 export interface CluiAPI {
   // ─── Request-response (renderer → main) ───
-  start(): Promise<{ version: string; auth: { email?: string; subscriptionType?: string; authMethod?: string }; mcpServers: string[]; projectPath: string; homePath: string }>
+  start(): Promise<{ version: string; auth: { email?: string; subscriptionType?: string; authMethod?: string }; mcpServers: string[]; models: ModelOption[]; skills: string[]; projectPath: string; homePath: string; permissionMode: 'ask' | 'auto'; launchOnStartup: boolean }>
   createTab(): Promise<{ tabId: string }>
   prompt(tabId: string, requestId: string, options: RunOptions): Promise<void>
   cancel(requestId: string): Promise<boolean>
@@ -15,24 +15,27 @@ export interface CluiAPI {
   closeTab(tabId: string): Promise<void>
   selectDirectory(): Promise<string | null>
   openExternal(url: string): Promise<boolean>
-  openInTerminal(sessionId: string | null, projectPath?: string): Promise<boolean>
+  openInTerminal(threadId: string | null, projectPath?: string): Promise<boolean>
   attachFiles(): Promise<Attachment[] | null>
   takeScreenshot(): Promise<Attachment | null>
   pasteImage(dataUrl: string): Promise<Attachment | null>
-  transcribeAudio(audioBase64: string): Promise<{ error: string | null; transcript: string | null }>
+  transcribeAudio(payload: AudioTranscriptionInput): Promise<{ error: string | null; transcript: string | null }>
   getDiagnostics(): Promise<any>
-  respondPermission(tabId: string, questionId: string, optionId: string): Promise<boolean>
+  respondPermission(tabId: string, requestId: string, optionId: string): Promise<boolean>
   initSession(tabId: string): void
   resetTabSession(tabId: string): void
   listSessions(projectPath?: string): Promise<SessionMeta[]>
-  loadSession(sessionId: string, projectPath?: string): Promise<SessionLoadMessage[]>
+  loadSession(threadId: string, projectPath?: string): Promise<SessionLoadMessage[]>
   fetchMarketplace(forceRefresh?: boolean): Promise<{ plugins: CatalogPlugin[]; error: string | null }>
   listInstalledPlugins(): Promise<string[]>
   installPlugin(repo: string, pluginName: string, marketplace: string, sourcePath?: string, isSkillMd?: boolean): Promise<{ ok: boolean; error?: string }>
   uninstallPlugin(pluginName: string): Promise<{ ok: boolean; error?: string }>
   setPermissionMode(mode: string): void
+  setLaunchOnStartup(enabled: boolean): Promise<{ ok: boolean; error?: string }>
   getTheme(): Promise<{ isDark: boolean }>
   onThemeChange(callback: (isDark: boolean) => void): () => void
+  getHotkey(): Promise<HotkeySetting>
+  setHotkey(accelerator: string): Promise<{ ok: boolean; accelerator: string; error?: string }>
 
   // ─── Window management ───
   resizeHeight(height: number): void
@@ -49,6 +52,7 @@ export interface CluiAPI {
   onError(callback: (tabId: string, error: EnrichedError) => void): () => void
   onSkillStatus(callback: (status: { name: string; state: string; error?: string; reason?: string }) => void): () => void
   onWindowShown(callback: () => void): () => void
+  onWindowHideRequested(callback: () => void): () => void
 }
 
 const api: CluiAPI = {
@@ -64,18 +68,18 @@ const api: CluiAPI = {
   closeTab: (tabId) => ipcRenderer.invoke(IPC.CLOSE_TAB, tabId),
   selectDirectory: () => ipcRenderer.invoke(IPC.SELECT_DIRECTORY),
   openExternal: (url) => ipcRenderer.invoke(IPC.OPEN_EXTERNAL, url),
-  openInTerminal: (sessionId, projectPath) => ipcRenderer.invoke(IPC.OPEN_IN_TERMINAL, { sessionId, projectPath }),
+  openInTerminal: (threadId, projectPath) => ipcRenderer.invoke(IPC.OPEN_IN_TERMINAL, { sessionId: threadId, projectPath }),
   attachFiles: () => ipcRenderer.invoke(IPC.ATTACH_FILES),
   takeScreenshot: () => ipcRenderer.invoke(IPC.TAKE_SCREENSHOT),
   pasteImage: (dataUrl) => ipcRenderer.invoke(IPC.PASTE_IMAGE, dataUrl),
-  transcribeAudio: (audioBase64) => ipcRenderer.invoke(IPC.TRANSCRIBE_AUDIO, audioBase64),
+  transcribeAudio: (payload) => ipcRenderer.invoke(IPC.TRANSCRIBE_AUDIO, payload),
   getDiagnostics: () => ipcRenderer.invoke(IPC.GET_DIAGNOSTICS),
-  respondPermission: (tabId, questionId, optionId) =>
-    ipcRenderer.invoke(IPC.RESPOND_PERMISSION, { tabId, questionId, optionId }),
+  respondPermission: (tabId, requestId, optionId) =>
+    ipcRenderer.invoke(IPC.RESPOND_PERMISSION, { tabId, questionId: requestId, optionId }),
   initSession: (tabId) => ipcRenderer.send(IPC.INIT_SESSION, tabId),
   resetTabSession: (tabId) => ipcRenderer.send(IPC.RESET_TAB_SESSION, tabId),
   listSessions: (projectPath?: string) => ipcRenderer.invoke(IPC.LIST_SESSIONS, projectPath),
-  loadSession: (sessionId: string, projectPath?: string) => ipcRenderer.invoke(IPC.LOAD_SESSION, { sessionId, projectPath }),
+  loadSession: (threadId: string, projectPath?: string) => ipcRenderer.invoke(IPC.LOAD_SESSION, { sessionId: threadId, projectPath }),
   fetchMarketplace: (forceRefresh) => ipcRenderer.invoke(IPC.MARKETPLACE_FETCH, { forceRefresh }),
   listInstalledPlugins: () => ipcRenderer.invoke(IPC.MARKETPLACE_INSTALLED),
   installPlugin: (repo, pluginName, marketplace, sourcePath, isSkillMd) =>
@@ -83,7 +87,10 @@ const api: CluiAPI = {
   uninstallPlugin: (pluginName) =>
     ipcRenderer.invoke(IPC.MARKETPLACE_UNINSTALL, { pluginName }),
   setPermissionMode: (mode) => ipcRenderer.send(IPC.SET_PERMISSION_MODE, mode),
+  setLaunchOnStartup: (enabled) => ipcRenderer.invoke(IPC.SET_LAUNCH_ON_STARTUP, enabled),
   getTheme: () => ipcRenderer.invoke(IPC.GET_THEME),
+  getHotkey: () => ipcRenderer.invoke(IPC.GET_HOTKEY),
+  setHotkey: (accelerator) => ipcRenderer.invoke(IPC.SET_HOTKEY, accelerator),
   onThemeChange: (callback) => {
     const handler = (_e: Electron.IpcRendererEvent, isDark: boolean) => callback(isDark)
     ipcRenderer.on(IPC.THEME_CHANGED, handler)
@@ -137,6 +144,12 @@ const api: CluiAPI = {
     const handler = () => callback()
     ipcRenderer.on(IPC.WINDOW_SHOWN, handler)
     return () => ipcRenderer.removeListener(IPC.WINDOW_SHOWN, handler)
+  },
+
+  onWindowHideRequested: (callback) => {
+    const handler = () => callback()
+    ipcRenderer.on(IPC.WINDOW_HIDE_REQUESTED, handler)
+    return () => ipcRenderer.removeListener(IPC.WINDOW_HIDE_REQUESTED, handler)
   },
 }
 

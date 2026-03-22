@@ -1,16 +1,16 @@
 {
   "name": "clui",
   "version": "0.1.0",
-  "description": "Clui CC — Command Line User Interface for Claude Code",
+  "description": "CLUI — Command Line User Interface for Codex",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lcoutodemos/clui-cc.git"
+    "url": "https://github.com/justjxke/clui.git"
   },
   "bugs": {
-    "url": "https://github.com/lcoutodemos/clui-cc/issues"
+    "url": "https://github.com/justjxke/clui/issues"
   },
-  "homepage": "https://github.com/lcoutodemos/clui-cc#readme",
+  "homepage": "https://github.com/justjxke/clui#readme",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -30,7 +30,7 @@
   },
   "build": {
     "appId": "com.clui.app",
-    "productName": "Clui CC",
+    "productName": "CLUI",
     "directories": {
       "output": "release"
     },
@@ -46,7 +46,7 @@
       "entitlements": "resources/entitlements.mac.plist",
       "entitlementsInherit": "resources/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Clui CC uses your microphone to transcribe voice input locally with Whisper."
+        "NSMicrophoneUsageDescription": "CLUI uses your microphone to transcribe voice input locally with Whisper."
       }
     }
   },

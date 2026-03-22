@@ -5,17 +5,17 @@ import { useColors } from '../theme'
 
 interface Props {
   tools: Array<{ toolName: string; toolUseId: string }>
-  sessionId: string | null
+  threadId: string | null
   projectPath: string
   onDismiss: () => void
 }
 
-export function PermissionDeniedCard({ tools, sessionId, projectPath, onDismiss }: Props) {
+export function PermissionDeniedCard({ tools, threadId, projectPath, onDismiss }: Props) {
   const colors = useColors()
 
   const handleOpenInCli = () => {
-    if (sessionId) {
-      window.clui.openInTerminal(sessionId, projectPath)
+    if (threadId) {
+      window.clui.openInTerminal(threadId, projectPath)
     }
     onDismiss()
   }
@@ -32,10 +32,10 @@ export function PermissionDeniedCard({ tools, sessionId, projectPath, onDismiss 
     >
       <div
         style={{
-          background: colors.containerBg,
+          background: colors.toolBg,
           border: `1px solid ${colors.permissionDeniedBorder}`,
           borderRadius: 14,
-          boxShadow: `0 2px 12px ${colors.statusErrorBg}`,
+          boxShadow: `0 8px 24px ${colors.statusErrorBg}`,
         }}
         className="overflow-hidden"
       >
@@ -84,7 +84,7 @@ export function PermissionDeniedCard({ tools, sessionId, projectPath, onDismiss 
 
           {/* Actions */}
           <div className="flex gap-1.5">
-            {sessionId && (
+            {threadId && (
               <button
                 onClick={handleOpenInCli}
                 className="text-[11px] font-medium px-3 py-1.5 rounded-full transition-colors cursor-pointer flex items-center gap-1.5"

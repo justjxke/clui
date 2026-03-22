@@ -52,12 +52,12 @@ export function PermissionCard({ tabId, permission, queueLength = 1 }: Props) {
   // Reset responded flag when the displayed permission changes (queue advancing)
   React.useEffect(() => {
     setResponded(false)
-  }, [permission.questionId])
+  }, [permission.requestId])
 
   const handleOption = (optionId: string) => {
     if (responded) return // Prevent double-send
     setResponded(true)
-    respondPermission(tabId, permission.questionId, optionId)
+    respondPermission(tabId, permission.requestId, optionId)
   }
 
   const inputPreview = formatInput(permission.toolInput)
@@ -72,9 +72,9 @@ export function PermissionCard({ tabId, permission, queueLength = 1 }: Props) {
     >
       <div
         style={{
-          background: colors.containerBg,
+          background: colors.toolBg,
           border: `1px solid ${colors.permissionBorder}`,
-          borderRadius: 12,
+          borderRadius: 14,
           boxShadow: colors.permissionShadow,
         }}
         className="overflow-hidden"
@@ -113,6 +113,7 @@ export function PermissionCard({ tabId, permission, queueLength = 1 }: Props) {
               style={{
                 background: colors.codeBg,
                 color: colors.textSecondary,
+                border: `1px solid ${colors.toolBorder}`,
                 maxHeight: 80,
               }}
             >
@@ -146,7 +147,7 @@ export function PermissionCard({ tabId, permission, queueLength = 1 }: Props) {
                 bg = colors.accentLight
                 hoverBg = colors.accentSoft
                 textColor = colors.accent
-                borderColor = colors.accentSoft
+                borderColor = colors.accentBorderMedium
               }
 
               return (

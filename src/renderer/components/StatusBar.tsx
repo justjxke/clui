@@ -60,7 +60,7 @@ function ModelPicker() {
     if (tab?.sessionModel) {
       return getModelDisplayLabel(tab.sessionModel)
     }
-    return AVAILABLE_MODELS[0].label
+    return AVAILABLE_MODELS[0]?.label || 'Default'
   })()
 
   return (
@@ -71,6 +71,7 @@ function ModelPicker() {
         className="flex items-center gap-0.5 text-[10px] rounded-full px-1.5 py-0.5 transition-colors"
         style={{
           color: colors.textTertiary,
+          background: open ? colors.surfaceHover : 'transparent',
           cursor: isBusy ? 'not-allowed' : 'pointer',
         }}
         title={isBusy ? 'Stop the task to change model' : 'Switch model'}
@@ -103,7 +104,7 @@ function ModelPicker() {
         >
           <div className="py-1">
             {AVAILABLE_MODELS.map((m) => {
-              const isSelected = preferredModel === m.id || (!preferredModel && m.id === AVAILABLE_MODELS[0].id)
+              const isSelected = preferredModel === m.id || (!preferredModel && m.id === AVAILABLE_MODELS[0]?.id)
               return (
                 <button
                   key={m.id}
@@ -176,6 +177,7 @@ function PermissionModePicker() {
         className="flex items-center gap-0.5 text-[10px] rounded-full px-1.5 py-0.5 transition-colors"
         style={{
           color: colors.textTertiary,
+          background: open ? colors.surfaceHover : 'transparent',
           cursor: 'pointer',
         }}
         title="Permission mode (global)"
@@ -264,7 +266,7 @@ export function StatusBar() {
       && a.additionalDirs === b.additionalDirs
       && a.hasChosenDirectory === b.hasChosenDirectory
       && a.workingDirectory === b.workingDirectory
-      && a.claudeSessionId === b.claudeSessionId
+      && a.threadId === b.threadId
     ),
   )
   const addDirectory = useSessionStore((s) => s.addDirectory)
@@ -297,7 +299,7 @@ export function StatusBar() {
   const hasExtraDirs = tab.additionalDirs.length > 0
 
   const handleOpenInTerminal = () => {
-    window.clui.openInTerminal(tab.claudeSessionId, tab.workingDirectory)
+    window.clui.openInTerminal(tab.threadId, tab.workingDirectory)
   }
 
   const handleDirClick = () => {
@@ -337,6 +339,7 @@ export function StatusBar() {
           className="flex items-center gap-1 rounded-full px-1.5 py-0.5 transition-colors flex-shrink-0"
           style={{
             color: colors.textTertiary,
+            background: dirOpen ? colors.surfaceHover : 'transparent',
             cursor: isRunning ? 'not-allowed' : 'pointer',
             maxWidth: 140,
           }}
@@ -416,7 +419,7 @@ export function StatusBar() {
               <button
                 onClick={handleAddDir}
                 className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] transition-colors rounded-lg"
-                style={{ color: colors.accent }}
+                style={{ color: colors.accent, background: colors.accentLight, border: `1px solid ${colors.accentBorder}` }}
               >
                 <Plus size={10} />
                 Add directory...
@@ -440,7 +443,7 @@ export function StatusBar() {
         <button
           onClick={handleOpenInTerminal}
           className="flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 transition-colors"
-          style={{ color: colors.textTertiary }}
+          style={{ color: colors.textSecondary, background: colors.surfaceHover, border: `1px solid ${colors.toolBorder}` }}
           title="Open this session in Terminal"
         >
           Open in CLI

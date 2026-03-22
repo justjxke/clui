@@ -108,10 +108,10 @@ export function MarketplacePanel() {
           <HeadCircuit size={20} weight="regular" style={{ color: colors.accent }} />
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: colors.textPrimary }}>
-              Skills Marketplace
+              Codex Discovery
             </div>
             <div style={{ fontSize: 11, color: colors.textTertiary, marginTop: 2 }}>
-              Install skills and plugins without leaving CLUI
+              Browse skills, plugins, and apps from Codex
             </div>
           </div>
         </div>
@@ -167,7 +167,7 @@ export function MarketplacePanel() {
           <MagnifyingGlass size={13} style={{ color: colors.textTertiary, flexShrink: 0 }} />
           <input
             type="text"
-            placeholder="Search skills, tags, authors..."
+            placeholder="Search skills, plugins, apps..."
             value={localSearch}
             onChange={handleSearchChange}
             style={{
@@ -308,6 +308,7 @@ function PluginCard({ plugin, status, colors, expanded, onToggleExpand, scrollCo
 
   const handleInstallClick = (e: React.MouseEvent) => {
     e.stopPropagation()
+    if (!plugin.installable) return
     if (status === 'failed') {
       installPlugin(plugin)
     } else {
@@ -442,8 +443,8 @@ function PluginCard({ plugin, status, colors, expanded, onToggleExpand, scrollCo
                 lineHeight: 1.6,
               }}>
                 {plugin.isSkillMd
-                  ? <>~/.claude/skills/{plugin.installName}/SKILL.md</>
-                  : <>claude plugin install {plugin.installName}@{safeMarketplace}</>
+                  ? <>{plugin.path || plugin.installName}</>
+                  : <>Install actions are currently browse-only</>
                 }
               </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
@@ -455,7 +456,7 @@ function PluginCard({ plugin, status, colors, expanded, onToggleExpand, scrollCo
                     cursor: 'pointer', fontFamily: 'inherit',
                   }}
                 >
-                  Confirm Install
+                  Confirm
                 </button>
                 <button
                   onClick={handleCancel}
@@ -485,7 +486,7 @@ function PluginCard({ plugin, status, colors, expanded, onToggleExpand, scrollCo
               >
                 <SpinnerGap size={14} style={{ color: colors.accent }} />
               </motion.div>
-              <span style={{ fontSize: 11, color: colors.textSecondary }}>Installing plugin...</span>
+              <span style={{ fontSize: 11, color: colors.textSecondary }}>Updating item...</span>
             </div>
           )}
         </div>
@@ -587,6 +588,19 @@ function StatusButton({ status, colors, onClick, onUninstall }: {
         >
           Failed — Retry
         </button>
+      )
+    case 'browse_only':
+      return (
+        <span
+          style={{
+            fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 8,
+            background: colors.surfacePrimary, color: colors.textTertiary,
+            border: `1px solid ${colors.containerBorder}`,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Browse
+        </span>
       )
     default:
       return (

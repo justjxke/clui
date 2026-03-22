@@ -25,6 +25,21 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}M`
 }
 
+function formatSessionLocation(cwd: string, homePath?: string): string | null {
+  if (!cwd || cwd === '~') return null
+  if (homePath && cwd === homePath) return '~'
+
+  const normalizedHome = homePath?.replace(/\/+$/, '')
+  if (normalizedHome && cwd.startsWith(`${normalizedHome}/`)) {
+    return `~/${cwd.slice(normalizedHome.length + 1)}`
+  }
+
+  const trimmed = cwd.replace(/\/+$/, '')
+  const parts = trimmed.split('/')
+  const name = parts[parts.length - 1]
+  return name && name !== '/' ? name : cwd
+}
+
 export function HistoryPicker() {
   const resumeSession = useSessionStore((s) => s.resumeSession)
   const isExpanded = useSessionStore((s) => s.isExpanded)
@@ -97,11 +112,12 @@ export function HistoryPicker() {
 
   const handleSelect = (session: SessionMeta) => {
     setOpen(false)
-    const title = session.firstMessage
-      ? (session.firstMessage.length > 30 ? session.firstMessage.substring(0, 27) + '...' : session.firstMessage)
-      : session.slug || 'Resumed'
-    void resumeSession(session.sessionId, title, effectiveProjectPath)
+    const base = session.preview || session.name || 'Resumed'
+    const title = base.length > 30 ? `${base.substring(0, 27)}...` : base
+    void resumeSession(session.threadId, title, effectiveProjectPath)
   }
+
+  const homePath = staticInfo?.homePath
 
   return (
     <>
@@ -109,7 +125,7 @@ export function HistoryPicker() {
         ref={triggerRef}
         onClick={handleToggle}
         className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors"
-        style={{ color: colors.textTertiary }}
+        style={{ color: colors.textTertiary, background: open ? colors.surfaceHover : 'transparent' }}
         title="Resume a previous session"
       >
         <Clock size={13} />
@@ -161,19 +177,28 @@ export function HistoryPicker() {
 
             {!loading && sessions.map((session) => (
               <button
-                key={session.sessionId}
+                key={session.threadId}
                 onClick={() => handleSelect(session)}
                 className="w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors"
+                style={{ margin: '0 4px', width: 'calc(100% - 8px)', borderRadius: 10 }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = colors.surfaceHover
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent'
+                }}
               >
                 <ChatCircle size={13} className="flex-shrink-0 mt-0.5" style={{ color: colors.textTertiary }} />
                 <div className="min-w-0 flex-1">
                   <div className="text-[11px] truncate" style={{ color: colors.textPrimary }}>
-                    {session.firstMessage || session.slug || session.sessionId.substring(0, 8)}
+                    {session.preview || session.name || session.threadId.substring(0, 8)}
                   </div>
                   <div className="flex items-center gap-2 text-[10px] mt-0.5" style={{ color: colors.textTertiary }}>
-                    <span>{formatTimeAgo(session.lastTimestamp)}</span>
-                    <span>{formatSize(session.size)}</span>
-                    {session.slug && <span className="truncate">{session.slug}</span>}
+                    <span>{formatTimeAgo(session.updatedAt)}</span>
+                    {formatSessionLocation(session.cwd, homePath) && (
+                      <span className="truncate">{formatSessionLocation(session.cwd, homePath)}</span>
+                    )}
+                    {session.name && <span className="truncate">{session.name}</span>}
                   </div>
                 </div>
               </button>

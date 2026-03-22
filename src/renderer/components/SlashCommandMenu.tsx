@@ -94,6 +94,9 @@ export function SlashCommandMenu({ filter, selectedIndex, onSelect, anchorRect, 
               className="w-full flex items-center gap-2.5 px-3 py-1.5 text-left transition-colors"
               style={{
                 background: isSelected ? colors.accentLight : 'transparent',
+                margin: '0 4px',
+                width: 'calc(100% - 8px)',
+                borderRadius: 10,
               }}
               onMouseEnter={(e) => {
                 (e.currentTarget as HTMLElement).style.background = colors.accentLight
