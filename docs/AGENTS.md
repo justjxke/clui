@@ -1,11 +1,11 @@
 # Agent Guide — Clui CC
 
-> This file is optimized for AI coding agents (Claude Code, Cursor, Copilot, etc.).
+> This file is optimized for AI coding agents (Codex, Cursor, Copilot, etc.).
 > For human-readable docs see [ARCHITECTURE.md](ARCHITECTURE.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## What This Project Is
 
-Clui CC is a **macOS-only Electron overlay** that wraps the Claude Code CLI (`claude -p --output-format stream-json`) in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the Anthropic API directly — it spawns CLI subprocesses.
+Clui CC is a **macOS-only Electron overlay** that wraps Codex app-server sessions in a floating pill UI. It is NOT a web app, NOT a VS Code extension, and does NOT call the OpenAI API directly — it connects to the local Codex app-server.
 
 ## Quick Reference
 
@@ -26,7 +26,7 @@ Renderer (React 19 + Zustand 5 + Tailwind CSS 4)
     ↕  contextBridge IPC (src/preload/index.ts)
 Main Process (Node.js / Electron 33)
     ↕  spawns subprocess
-Claude Code CLI (claude -p --output-format stream-json)
+Codex app-server
 ```
 
 ### Layer Responsibilities
@@ -41,9 +41,9 @@ Claude Code CLI (claude -p --output-format stream-json)
 
 | Concern | File(s) |
 |---------|---------|
-| Tab lifecycle & state machine | `src/main/claude/control-plane.ts` |
-| Spawning Claude CLI processes | `src/main/claude/run-manager.ts` |
-| Raw NDJSON → canonical events | `src/main/claude/event-normalizer.ts` |
+| Tab lifecycle & state machine | `src/main/codex/control-plane.ts` |
+| Codex app-server client | `src/main/codex/app-server-client.ts` |
+| Raw events → canonical events | `src/main/codex/normalizer.ts` |
 | Permission hook server | `src/main/hooks/permission-server.ts` |
 | All TypeScript types & IPC channels | `src/shared/types.ts` |
 | Zustand state store | `src/renderer/stores/sessionStore.ts` |
@@ -58,11 +58,11 @@ Claude Code CLI (claude -p --output-format stream-json)
 InputBar.tsx → window.clui.prompt(tabId, requestId, opts)
   → ipcRenderer.invoke('clui:prompt')
   → ControlPlane.prompt()
-  → RunManager spawns: claude -p --output-format stream-json --resume <sid>
-  → stdout emits NDJSON lines
-  → EventNormalizer → NormalizedEvent
+  → Codex app-server starts session
+  → stdout emits JSON-RPC notifications
+  → CodexEventNormalizer → NormalizedEvent
   → ControlPlane broadcasts via IPC
-  → useClaudeEvents hook → sessionStore.handleNormalizedEvent()
+  → event hook → sessionStore.handleNormalizedEvent()
   → React re-renders
 ```
 
@@ -74,7 +74,7 @@ All IPC and event types live in `src/shared/types.ts`. Key types:
 - **`TabState`** — full state of a single tab (status, messages, permissions, session metadata)
 - **`TabStatus`** — state machine: `connecting → idle → running → completed/failed/dead`
 - **`IPC`** — const object with all IPC channel names (use these, never raw strings)
-- **`RunOptions`** — options passed when spawning a Claude CLI run
+- **`RunOptions`** — options passed when starting a Codex session
 - **`CatalogPlugin`** — marketplace plugin metadata
 
 ## Conventions & Rules
@@ -93,7 +93,7 @@ All IPC and event types live in `src/shared/types.ts`. Key types:
 - **Permission server** binds to `127.0.0.1` only (never `0.0.0.0`)
 - **Per-launch app secret** (random UUID) validates hook requests — do not weaken
 - **Per-run tokens** route permission responses to correct tab — do not bypass
-- **`CLAUDECODE` env var** is explicitly removed from spawned processes
+- **`CLAUDECODE` env var** is explicitly removed from spawned processes for compatibility with older environments
 - **Sensitive fields** (tokens, passwords, secrets, keys, auth, credentials) are masked via `maskSensitiveFields()` before display
 - **5-minute auto-deny timeout** on unanswered permissions — do not remove
 
@@ -118,10 +118,10 @@ All IPC and event types live in `src/shared/types.ts`. Key types:
 3. Use Phosphor icons (`@phosphor-icons/react`) — not other icon libraries
 4. Animations via Framer Motion
 
-### New event type from Claude CLI
-1. Add raw type to `ClaudeEvent` union in `src/shared/types.ts`
+### New event type from Codex
+1. Add raw type to `CodexEvent` union in `src/shared/types.ts`
 2. Add normalized form to `NormalizedEvent` union
-3. Handle in `EventNormalizer.normalize()` (`src/main/claude/event-normalizer.ts`)
+3. Handle in `CodexEventNormalizer.normalize()` (`src/main/codex/normalizer.ts`)
 4. Handle in `sessionStore.handleNormalizedEvent()` (`src/renderer/stores/sessionStore.ts`)
 
 ### New tab state field
@@ -160,4 +160,4 @@ No telemetry. No analytics. No auto-update.
 3. **Mutating tab state from renderer** instead of going through ControlPlane events
 4. **Hardcoding IPC strings** instead of using `IPC.*` constants
 5. **Testing on non-macOS** — this is macOS-only (transparent windows, node-pty bindings)
-6. **Not handling the `session_dead` event** — if a Claude process crashes, the tab must transition to `dead` status
+6. **Not handling the `session_dead` event** — if the Codex session disconnects, the tab must transition to `dead` status

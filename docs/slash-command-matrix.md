@@ -1,5 +1,7 @@
 # Slash Command Capability Matrix
 
+Legacy note: this report was captured before the Codex migration and is kept for historical reference.
+
 CLI Version: 2.1.63 | Date: 2026-03-08
 Test session: 450d2d0f-4b03-4761-8ecd-8d179998127d
 

@@ -1,5 +1,7 @@
 # CLUI Open-Source Readiness Report
 
+Legacy note: this report predates the Codex migration and retains some old CLI and path names for historical context.
+
 **Date:** 2026-03-12
 **Branch:** `oss-prep`
 **Assessor:** Automated scan + manual review

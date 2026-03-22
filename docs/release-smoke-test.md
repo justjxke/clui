@@ -19,7 +19,7 @@ npm run build      # production build — must exit 0 with no errors
 - clang++ available with working C++ headers
 - `node --version` returns 18+
 - `python3` available with `distutils` importable
-- `claude --version` returns 2.1+
+- `codex --version` returns 2.1+
 
 **Expected output:**
 - `dist/main/index.js` — ~117 KB
@@ -39,7 +39,7 @@ npm run build      # production build — must exit 0 with no errors
 - [ ] macOS 13+
 - [ ] Xcode Command Line Tools installed (`xcode-select -p` returns a path)
 - [ ] Node.js 18+
-- [ ] `claude` CLI installed and authenticated (`claude --version` returns 2.1+)
+- [ ] `codex` installed and authenticated (`codex --version` returns 2.1+)
 
 ### Startup
 - [ ] `npm run dev` or `./commands/start.command` launches the app
@@ -63,7 +63,7 @@ npm run build      # production build — must exit 0 with no errors
 - [ ] Cost/tokens shown in status bar
 
 ### Permission System
-- [ ] When Claude tries to use a tool, a permission card appears
+- [ ] When Codex tries to use a tool, a permission card appears
 - [ ] "Allow" lets the tool run
 - [ ] "Deny" blocks the tool
 - [ ] Permission denial is reflected in task completion
@@ -124,6 +124,6 @@ npm run build      # production build — must exit 0 with no errors
 - **Date:** 2026-03-12
 - **Node:** v22.x
 - **Electron:** 33.x
-- **Claude CLI:** 2.1.71
+- **Codex:** 2.1.71
 - **macOS:** 15.x (Sequoia)
 - **Build result:** Pass (zero build errors)

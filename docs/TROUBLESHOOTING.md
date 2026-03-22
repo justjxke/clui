@@ -102,16 +102,16 @@ EOF
 
 Then retry `npm install`.
 
-## App Launches but No Claude Response
+## App Launches but No Codex Response
 
-Verify Claude CLI is installed and authenticated:
+Verify Codex is installed and authenticated:
 
 ```bash
-claude --version
+codex --version
 ```
 
 ```bash
-claude
+codex
 ```
 
 ## `⌥ + Space` Does Not Toggle

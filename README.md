@@ -2,12 +2,13 @@
 
 A lightweight, transparent desktop overlay for Codex on macOS. CLUI wraps the Codex CLI/app-server in a floating pill interface with multi-tab sessions, a permission approval UI, voice input, and a skills marketplace.
 
-CleanShot 2026-03-22 at 13.10.39@2x.png
+![CLUI](/Users/jake/Documents/Projects/clui/docs/hero.png)
+
 
 ## Features
 
 - **Floating overlay** — transparent, click-through window that stays on top. Toggle with `⌥ + Space` (fallback: `Cmd+Shift+K`).
-- **Multi-tab sessions** — each tab spawns its own `claude -p` process with independent session state.
+- **Multi-tab sessions** — each tab opens its own Codex session with independent session state.
 - **Permission approval UI** — intercepts tool calls via PreToolUse HTTP hooks so you can review and approve/deny from the UI.
 - **Conversation history** — browse and resume past Codex threads.
 - **Skills marketplace** — browse Codex-native skills, plugins, and apps without leaving CLUI.
@@ -25,7 +26,7 @@ CleanShot 2026-03-22 at 13.10.39@2x.png
 ## How It Works
 
 ```
-UI prompt → Main process spawns claude -p → NDJSON stream → live render
+UI prompt → Main process routes to Codex app-server → event stream → live render
                                          → tool call? → permission UI → approve/deny
 ```
 
@@ -135,16 +136,16 @@ node --version
 python3 -m pip install --upgrade pip setuptools
 ```
 
-**Step 4.** Install Codex CLI:
+**Step 4.** Install Codex:
 
 ```bash
-npm install -g @anthropic-ai/claude-code
+npm install -g @openai/codex
 ```
 
 **Step 5.** Authenticate Codex (follow the prompts that appear):
 
 ```bash
-claude
+codex
 ```
 
 **Step 6.** Install Whisper for voice input:
@@ -156,7 +157,7 @@ brew install whisperkit-cli
 brew install whisper-cpp
 ```
 
-> **No API keys or `.env` file required.** CLUI uses your existing Codex CLI authentication.
+> **No API keys or `.env` file required.** CLUI uses your existing Codex authentication.
 
 </details>
 
@@ -168,7 +169,7 @@ brew install whisper-cpp
 ```
 src/
 ├── main/                   # Electron main process
-│   ├── claude/             # ControlPlane, RunManager, EventNormalizer
+│   ├── codex/              # ControlPlane, app-server client, EventNormalizer
 │   ├── hooks/              # PermissionServer (PreToolUse HTTP hooks)
 │   ├── marketplace/        # Plugin catalog fetching + install
 │   ├── skills/             # Skill auto-installer
@@ -184,8 +185,8 @@ src/
 
 ### How It Works
 
-1. Each tab creates a `claude -p --output-format stream-json` subprocess.
-2. NDJSON events are parsed by `RunManager` and normalized by `EventNormalizer`.
+1. Each tab opens a Codex session through the local app-server.
+2. Event messages are parsed by `CodexAppServerClient` and normalized by `CodexEventNormalizer`.
 3. `ControlPlane` manages tab lifecycle (connecting → idle → running → completed/failed/dead).
 4. Tool permission requests arrive via HTTP hooks to `PermissionServer` (localhost only).
 5. The renderer polls backend health every 1.5s and reconciles tab state.
@@ -222,12 +223,11 @@ npm run doctor
 | Node.js | 20.x LTS, 22.x |
 | Python | 3.12 (with setuptools installed) |
 | Electron | 33.x |
-| Codex CLI | 2.1.71 |
 
 ## Known Limitations
 
 - **macOS only** — transparent overlay, tray icon, and node-pty are macOS-specific. Windows/Linux support is not currently implemented.
-- **Requires Codex CLI** — CLUI is a UI layer, not a standalone AI client. You need an authenticated `codex` CLI.
+- **Requires Codex** — CLUI is a UI layer, not a standalone AI client. You need an authenticated `codex` installation.
 - **Permission mode** — uses `--permission-mode default`. The PTY interactive transport is legacy and disabled by default.
 
 ## License
