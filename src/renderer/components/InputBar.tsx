@@ -12,6 +12,7 @@ const MULTILINE_ENTER_HEIGHT = 52
 const MULTILINE_EXIT_HEIGHT = 50
 const INLINE_CONTROLS_RESERVED_WIDTH = 104
 const VOICE_WAVE_BAR_COUNT = 40
+const VOICE_ERROR_TIMEOUT_MS = 5000
 
 type VoiceState = 'idle' | 'recording' | 'transcribing'
 
@@ -38,6 +39,7 @@ export function InputBar() {
   const pcmChunksRef = useRef<Float32Array[]>([])
   const inputSampleRateRef = useRef(16000)
   const waveformRef = useRef<number[]>(Array.from({ length: VOICE_WAVE_BAR_COUNT }, () => 0.08))
+  const voiceErrorTimerRef = useRef<number | null>(null)
 
   const sendMessage = useSessionStore((s) => s.sendMessage)
   const clearTab = useSessionStore((s) => s.clearTab)
@@ -148,6 +150,10 @@ export function InputBar() {
 
   useEffect(() => {
     return () => {
+      if (voiceErrorTimerRef.current !== null) {
+        window.clearTimeout(voiceErrorTimerRef.current)
+        voiceErrorTimerRef.current = null
+      }
       void teardownRecordingGraph()
       if (measureRef.current) {
         measureRef.current.remove()
@@ -335,6 +341,22 @@ export function InputBar() {
   // ─── Voice ───
   const cancelledRef = useRef(false)
 
+  const clearVoiceErrorTimer = useCallback(() => {
+    if (voiceErrorTimerRef.current !== null) {
+      window.clearTimeout(voiceErrorTimerRef.current)
+      voiceErrorTimerRef.current = null
+    }
+  }, [])
+
+  const showVoiceError = useCallback((message: string) => {
+    setVoiceError(message)
+    clearVoiceErrorTimer()
+    voiceErrorTimerRef.current = window.setTimeout(() => {
+      setVoiceError(null)
+      voiceErrorTimerRef.current = null
+    }, VOICE_ERROR_TIMEOUT_MS)
+  }, [clearVoiceErrorTimer])
+
   const teardownRecordingGraph = useCallback(async () => {
     audioProcessorRef.current?.disconnect()
     audioSourceRef.current?.disconnect()
@@ -378,14 +400,14 @@ export function InputBar() {
     try {
       const wavBytes = audioSamplesToWavBytes(mergedSamples, sampleRate)
       const result = await window.clui.transcribeAudio({ wavBytes })
-      if (result.error) setVoiceError(result.error)
+      if (result.error) showVoiceError(result.error)
       else if (result.transcript) setInput((prev) => (prev ? `${prev} ${result.transcript}` : result.transcript))
     } catch (err: any) {
-      setVoiceError(`Voice failed: ${err.message}`)
+      showVoiceError(`Voice failed: ${err.message}`)
     } finally {
       setVoiceState('idle')
     }
-  }, [teardownRecordingGraph])
+  }, [showVoiceError, teardownRecordingGraph])
 
   const stopRecording = useCallback(() => {
     cancelledRef.current = false
@@ -398,6 +420,7 @@ export function InputBar() {
   }, [finalizeRecording])
 
   const startRecording = useCallback(async () => {
+    clearVoiceErrorTimer()
     setVoiceError(null)
     waveformRef.current = Array.from({ length: VOICE_WAVE_BAR_COUNT }, () => 0.08)
     setVoiceWaveform(waveformRef.current)
@@ -406,7 +429,7 @@ export function InputBar() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch {
-      setVoiceError('Microphone permission denied.')
+      showVoiceError('Microphone permission denied.')
       return
     }
 
@@ -439,13 +462,13 @@ export function InputBar() {
       inputSampleRateRef.current = audioContext.sampleRate
     } catch (err: any) {
       stream.getTracks().forEach((track) => track.stop())
-      setVoiceError(`Recording failed: ${err.message}`)
+      showVoiceError(`Recording failed: ${err.message}`)
       setVoiceState('idle')
       return
     }
 
     setVoiceState('recording')
-  }, [])
+  }, [clearVoiceErrorTimer, showVoiceError])
 
   const handleVoiceToggle = useCallback(() => {
     if (voiceState === 'recording') stopRecording()
