@@ -46,6 +46,14 @@ function formatThreadStatus(status: CodexThreadStatus): string {
   return activeFlags.length > 0 ? `active:${activeFlags.join(',')}` : 'active'
 }
 
+function formatModelLabel(model: { id?: string; displayName?: string }): string {
+  const rawLabel = typeof model.id === 'string' && model.id.length > 0
+    ? model.id
+    : model.displayName || ''
+
+  return rawLabel.toLowerCase()
+}
+
 type PendingApproval = {
   method: string
   params: any
@@ -134,7 +142,7 @@ export class ControlPlane extends EventEmitter {
     this.latestModels = modelsResponse.status === 'fulfilled'
       ? (modelsResponse.value.data || []).map((model: any) => ({
           id: model.id,
-          label: model.displayName || model.id,
+          label: formatModelLabel(model),
           description: model.description || undefined,
           isDefault: !!model.isDefault,
         }))
